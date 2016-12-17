@@ -122,10 +122,6 @@ static void sighandler(int sig)
     cleanup(0, ls, 1);
     if(stDaemonConfig.syncOnShutdown)
       HandleCommand("systohc", 7, NULL, 0);
-    syslog(LOG_INFO, "Shutting down machine in %d seconds...\n", stDaemonConfig.delayShutdown);
-    DeviceShutdownCmd[5] = (char)stDaemonConfig.delayShutdown;
-    SendCommand(fd, DeviceShutdownCmd, 0);
-    exit(EXIT_SUCCESS);
     break;
   }
 }
@@ -398,28 +394,8 @@ int HandleCommand(char *message, int messageLen, char *retMessage, int bufSize)
       return 1;
     }
   }
-  
-  else if(strncmp(message, "DeviceShutdown", strlen("DeviceShutdown")) == 0)
-  {
-    syslog(LOG_DEBUG, "DeviceShutdown");
-    if(messageLen >= (strlen("DeviceShutdown") + 2))
-    {
-      tmp = atoi(&message[strlen("DeviceShutdown") + 1]);
-      //printf("%s\n", tmp);
-      DeviceShutdownCmd[5] = (char)tmp;
-      if(SendCommand(fd, DeviceShutdownCmd, NULL) == SUCCESS)
-      {
-        strncpy(retMessage, "OK\n", bufSize);
-        execl("/sbin/shutdown", "shutdown", "-h", "now", (char *)0);
-      }
-      else
-      {
-        strncpy(retMessage, "ERR\n", bufSize);
-        return 1;
-      }
-    }
-  }
-  
+ 
+ 
   else if(strncmp(message, "quit", messageLen) == 0)
   {
     syslog(LOG_DEBUG, "Quit\n");
@@ -760,7 +736,7 @@ int main(int argc, char *argv[])
   stDaemonConfig.pollGpio = iniparser_getint(iniFile, "Daemon:PollGPIO", 1);
   stDaemonConfig.syncOnShutdown = iniparser_getint(iniFile, "Daemon:SyncTimeOnShutdown", 0);
   stDaemonConfig.nRetries = iniparser_getint(iniFile, "Serial:NumberOfRetries", 5);
-  stDaemonConfig.delayShutdown = iniparser_getint(iniFile, "Daemon:DeviceShutdownDelay", 30);
+
 
   // Setup syslog
   if(stDaemonConfig.debug)
@@ -947,21 +923,6 @@ int main(int argc, char *argv[])
 
     while((sleepCount  * pollTimeMs) < (stDaemonConfig.fanPollTime * 1000))
     {
-      if(stDaemonConfig.pollGpio && (((sleepCount * pollTimeMs) % (stDaemonConfig.gpioPollTime* 1000)) == 0))
-      {
-        if(gpio_get_value(GPIO_BUTTON_POWER, &powerBtn) == 0)
-        {
-          if((powerBtn == 0) && !pressed)
-          {
-            pressed = 1;
-            syslog(LOG_INFO, "Power Button Pressed, shutting down system!\n");
-            DeviceShutdownCmd[5] = (char)stDaemonConfig.delayShutdown;
-            SendCommand(fd, DeviceShutdownCmd, NULL);
-            execl("/sbin/shutdown", "shutdown", "-h", "now", (char *)0);
-          }
-        }
-
-      }
       sleepCount++;
 
       ret=poll(fds,nfds,pollTimeMs); // Time out after pollTimeMs

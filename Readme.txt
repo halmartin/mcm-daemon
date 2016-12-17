@@ -1,10 +1,11 @@
-This is a simple daemon for the D-Link DNS-320L NAS system.
+This is a simple daemon for the WD-My Cloud Mirror gen2 and Ex2 ultra NAS system.
 
   It was developed on knowledge gained from reverse-engineering and spying 
-  on the original D-Link system software.
-  Parts of this work are based on fan-daemon.py by Lorenzo Martignoni.
-
+  on the a D-Link dns320l system software.
+  Parts of this work are based on fan-daemon.py by Lorenzo Martignoni and 
   (c) 2013 Andreas Boehler, andreas _AT_ aboehler.at
+Modified for WD  by
+  (c) 2016 Carl Schiller, schreibcarl@gmail.com
 
 
 How it works
@@ -32,7 +33,7 @@ Installation
   Put the binary to /usr/bin and the config file to /etc. Adapt the parameters
   to your needs, leave to defaults if unsure.
   A systemd unit is provided which can be copied to /etc/systemd/system and
-  enabled by running "systemctl enable dns320l-daemon"
+  enabled by running "systemctl enable mcm-daemon"
 
 Disclaimer
 ==========

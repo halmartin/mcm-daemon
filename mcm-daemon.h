@@ -19,8 +19,7 @@ typedef struct
   int tempHigh;
   int hysteresis;
   int nRetries;
-  int delayShutdown;
-
+ 
 } DaemonConfig;
 
 /** <i>Function</i> that reads a GPIO value from sysfs interface.

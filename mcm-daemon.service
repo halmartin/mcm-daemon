@@ -1,7 +1,6 @@
 [Unit]
 Description=MCM System Daemon
 After=syslog.target
-DefaultDependencies=no
 
 [Service]
 ExecStart=/usr/bin/mcm-daemon
