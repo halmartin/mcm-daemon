@@ -11,4 +11,4 @@ mcm-daemon: $(OBJ)
 	$(CC) -o $@ $^ $(CFLAGS) $(LIBS)
 
 clean:
-	rm -f *.o
+	rm -f *.o mcm-daemon
