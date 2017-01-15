@@ -272,7 +272,7 @@ int _SendCommand(int fd, char *cmd, char *outArray)
 	{
 		count = write(fd, &cmd[i], 1);
 		i++;
-		usleep(100); // The MCU seems to need some time..
+		usleep(200); // The MCU seems to need some time..
 		if(count != 1)
 		{
 			syslog(LOG_ERR, "Error writing byte %i: %i, count: %i\n", (i-1), cmd[i-1], count);
@@ -285,6 +285,7 @@ int _SendCommand(int fd, char *cmd, char *outArray)
 	{
 		n = read(fd, &buf[i], 1);
 		i++;
+		usleep(200); // todo, replace with select and timeout
 	} while((n == 1) && (buf[i-1] != CMD_STOP_MAGIC));
 
 
@@ -311,7 +312,7 @@ int _SendCommand(int fd, char *cmd, char *outArray)
 			{
 				outArray[j] = buf[j];
 			}
-			usleep(20000); // Give the µC some time to answer...
+			usleep(50000); // Give the µC some time to answer...
 
 			// Wait for ACK from Serial
 			i=0;
@@ -368,6 +369,31 @@ int HandleCommand(char *message, int messageLen, char *retMessage, int bufSize)
 		syslog(LOG_DEBUG, "DeviceReady\n");
 		if(SendCommand(fd, DeviceReadyCmd, NULL) == SUCCESS)
 			strncpy(retMessage, "OK\n", bufSize);
+		else
+		{
+			strncpy(retMessage, "ERR\n", bufSize);
+			return 1;
+		}
+	}
+
+	else if(strncmp(message, "GetFanRpm", messageLen) == 0)
+	{
+		syslog(LOG_DEBUG, "GetFanRpm\n");
+		if(SendCommand(fd, FanSpeedGetCmd, buf) > ERR_WRONG_ANSWER)
+		{
+			if ( buf[5] > 0 ) 
+				tmp = (int) (300000 / buf[5]);
+			else
+				tmp = 0;
+
+			snprintf(retMessage, bufSize, "%d", tmp);
+			len = strlen(retMessage);
+			if(bufSize > 1)
+			{
+				retMessage[len] = '\n';
+				retMessage[len+1] = '\0';
+			}
+		}
 		else
 		{
 			strncpy(retMessage, "ERR\n", bufSize);
@@ -664,6 +690,7 @@ int main(int argc, char *argv[])
 	char msgBuf[15];
 	int temperature;
 	int fanSpeed;
+	int fanRpm;
 	struct sockaddr_in s_name;
 	struct pollfd *fds = NULL;
 	nfds_t nfds;
@@ -679,6 +706,7 @@ int main(int argc, char *argv[])
 	sleepCount = 0;
 	pollTimeMs = 10; // Sleep 10ms for every loop
 	fanSpeed = -1;
+	fanRpm = -1;
 	
 	stDaemonConfig.goDaemon = 1;
 	stDaemonConfig.debug = 0;
@@ -783,9 +811,6 @@ int main(int argc, char *argv[])
 	
 	}
 
-
-
-
 	// Open our socket server
 	if ((ls = socket (AF_INET, SOCK_STREAM, 0)) == -1){
 		syslog(LOG_ERR, "socket");
@@ -862,6 +887,20 @@ int main(int argc, char *argv[])
 	while(1)
 	{
 		sleepCount = 0;
+
+		if(SendCommand(fd, FanSpeedGetCmd, msgBuf) > ERR_WRONG_ANSWER)
+		{
+			if ( msgBuf[5] == 0 )
+				fanRpm = 0;
+			else
+				fanRpm = (int) (300000 / (uint8_t) msgBuf[5]);
+		}
+		else
+		{
+			fanRpm = -1;
+		}
+		syslog(LOG_DEBUG, "Read fan rpm: %i\n", fanRpm);
+
 		if(SendCommand(fd, ThermalStatusGetCmd, msgBuf) > ERR_WRONG_ANSWER)
 			temperature = msgBuf[5];
 		else
