@@ -17,6 +17,7 @@
 *.app
 
 # Output files
+mcm-daemon
 *.hex
 *.lss
 *.lst
@@ -27,8 +28,6 @@
 .dep
 *.dep
 *.sym
-mcm-daemon
-mcm-daemon
 
 # iniparser repo
 iniparser
