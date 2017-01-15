@@ -1,25 +1,24 @@
 This is a simple daemon for the WD-My Cloud Mirror gen2 and Ex2 ultra NAS system.
 
   It was developed on knowledge gained from reverse-engineering and spying 
-  on the a D-Link dns320l system software.
+  on the a D-Link dns320l system software and extended to the WD MyCloud 
+  Gen2 devices (WD MyCloud Mirror Gen2 and WD MyCloud EX2 Ultra).
   Parts of this work are based on fan-daemon.py by Lorenzo Martignoni and 
   (c) 2013 Andreas Boehler, andreas _AT_ aboehler.at
 Modified for WD  by
   (c) 2016 Carl Schiller, schreibcarl@gmail.com
+  and
+  (c) 2017 Martin Mueller, mm@c-base.org
 
 
 How it works
 ============
 
-  On bootup, dns320l-daemon is executed and runs as a deamon. On startup, the 
+  On bootup, mcm-daemon is executed and runs as a deamon. On startup, the 
   daemon can optionally read the RTC and set the system time to the RTC time.
   It also sends the DeviceReady command to the MCU so that the Power LED stops
   blinking.
   Afterwards, it goes to fan control loop.
-
-  If the daemon is killed (e.g. during system shutdown), it sends the 
-  DeviceShutdown command with a timeout of 10 seconds to the MCU. After 10
-  seconds, the MCU kills power.
 
   For normal operation a socket server on port 57367 is provided. You can
   connect with any telnet client to this port and work with the device.
@@ -29,7 +28,9 @@ Installation
 ============
 
   Either compile the software on your NAS by typing "make" or cross-compile
-  it from your host computer.
+  it from your host computer using the supplied xcompile.sh script.
+  The mcm-daemon depends on the iniparser library from:
+    http://github.com/ndevilla/iniparser
   Put the binary to /usr/bin and the config file to /etc. Adapt the parameters
   to your needs, leave to defaults if unsure.
   A systemd unit is provided which can be copied to /etc/systemd/system and
