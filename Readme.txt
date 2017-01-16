@@ -29,10 +29,15 @@ Installation
 
   Either compile the software on your NAS by typing "make" or cross-compile
   it from your host computer using the supplied xcompile.sh script.
+  You can also build a debian package with:
+    dpkg-buildpackage -uc -us -b -t arm-linux-gnueabihf
+
   The mcm-daemon depends on the iniparser library from:
     http://github.com/ndevilla/iniparser
+
   Put the binary to /usr/bin and the config file to /etc. Adapt the parameters
   to your needs, leave to defaults if unsure.
+
   A systemd unit is provided which can be copied to /etc/systemd/system and
   enabled by running "systemctl enable mcm-daemon"
 

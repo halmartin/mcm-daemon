@@ -28,6 +28,9 @@ mcm-daemon
 .dep
 *.dep
 *.sym
+debian/mcm-daemon
+debian/mcm-daemon.debhelper.log
+debian/*.debhelper
 
 # iniparser repo
 iniparser

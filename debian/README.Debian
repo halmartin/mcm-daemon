@@ -1,0 +1,10 @@
+mcm-daemon for Debian
+---------------------
+
+This is a package to control the system fan and some LEDs on 
+Western Digital NAS devices. Supported are:
+  
+  - WD MyCloud Mirror Gen2
+  - WD MyCloud EX2 Ultra
+
+ -- Martin Mueller <mm@c-base.org>  Mon, 16 Jan 2017 13:59:32 +0100
