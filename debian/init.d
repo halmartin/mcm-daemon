@@ -21,3 +21,8 @@ fi
 
 DESC="MCU control daemon for fan and LEDs"
 DAEMON=/sbin/mcm-daemon
+
+do_stop () {
+	start-stop-daemon --stop --quiet --oknodo --retry=TERM/30/KILL/5 --exec $DAEMON
+	return $?
+}
