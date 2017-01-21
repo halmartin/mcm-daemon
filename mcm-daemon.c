@@ -514,9 +514,9 @@ static int GetWOL(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int BlueLedOn(char *retMessage, int bufSize)
+static int PwrLedOff(char *retMessage, int bufSize)
 {
-	if(SendCommand(fd, PwrLedOnCmd, NULL) == SUCCESS)
+	if(SendCommand(fd, PLedOffCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
 	else
 	{
@@ -526,9 +526,9 @@ static int BlueLedOn(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int BlueLedOff(char *retMessage, int bufSize)
+static int PwrLedBlue(char *retMessage, int bufSize)
 {
-	if(SendCommand(fd, PwrLedOffCmd, NULL) == SUCCESS)
+	if(SendCommand(fd, PLedBlueOnCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
 	else
 	{
@@ -538,9 +538,9 @@ static int BlueLedOff(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int BlueLedBlink(char *retMessage, int bufSize)
+static int PwrLedBlueBlink(char *retMessage, int bufSize)
 {
-	if(SendCommand(fd, PwrLedBlinkCmd, NULL) == SUCCESS)
+	if(SendCommand(fd, PLedBlueBlinkCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
 	else
 	{
@@ -550,9 +550,9 @@ static int BlueLedBlink(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int RedLedOn(char *retMessage, int bufSize)
+static int PwrLedBlueFade(char *retMessage, int bufSize)
 {
-	if(SendCommand(fd, PwrLedOnCmd, NULL) == SUCCESS)
+	if(SendCommand(fd, PLedBlueFadeCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
 	else
 	{
@@ -562,9 +562,9 @@ static int RedLedOn(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int RedLedOff(char *retMessage, int bufSize)
+static int PwrLedRed(char *retMessage, int bufSize)
 {
-	if(SendCommand(fd, PwrLedOffCmd, NULL) == SUCCESS)
+	if(SendCommand(fd, PLedRedOnCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
 	else
 	{
@@ -574,9 +574,33 @@ static int RedLedOff(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int RedLedBlink(char *retMessage, int bufSize)
+static int PwrLedRedBlink(char *retMessage, int bufSize)
 {
-	if(SendCommand(fd, PwrLedBlinkCmd, NULL) == SUCCESS)
+	if(SendCommand(fd, PLedRedBlinkCmd, NULL) == SUCCESS)
+		strncpy(retMessage, "OK\n", bufSize);
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int PwrLedOrange(char *retMessage, int bufSize)
+{
+	if(SendCommand(fd, PLedOrangeOnCmd, NULL) == SUCCESS)
+		strncpy(retMessage, "OK\n", bufSize);
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int PwrLedOrangeBlink(char *retMessage, int bufSize)
+{
+	if(SendCommand(fd, PLedOrangeBlinkCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
 	else
 	{
@@ -709,27 +733,29 @@ static int hctosys(char *retMessage, int bufSize)
 static int help(char *retMessage, int bufSize);
 
 DaemonCommand cmdTable[] = {
-		{ &DeviceReady, "DeviceReady",			"Tells the MCU, tht the device booted fully" },
-		{ &GetFanRpm,	"GetFanRpm",			"Reads the fan speed from the MCU" },
-		{ &GetTemp,		"GetTemperature",		"Reads the system temperatur from the MCU" },
-		{ &EnPwrRec,	"EnablePowerRecovery",	"Device boots after power failure" },
-		{ &DisPwrRec,	"DisablePowerRecovery",	"Device stays off after power failure" },
-		{ &GetPwrRec,	"GetPowerRecoveryState","Read status of power failure handling" },
-		{ &EnWOL,		"EnableWOL",			"enables wakup on magic packet" },
-		{ &DisWOL,		"DisableWOL",			"disables wakup on magic packet" },
-		{ &GetWOL,		"GetWOLState",			"read status of wakeonlan" },
-		{ &BlueLedOn,	"BlueLedOn",			"switches the blue power led on" },
-		{ &BlueLedOff,	"BlueLedOff",			"switches the blue power led off" },
-		{ &BlueLedBlink,"BlueLedBlink",			"blinks the blue power led" },
-		{ &RedLedOn,	"RedLedOn",				"switches the blue power led on" },
-		{ &RedLedOff,	"RedLedOff",			"switches the blue power led off" },
-		{ &RedLedBlink,	"RedLedBlink",			"blinks the blue power led" },
-		{ &Shutdown,	"ShutdownDaemon",		"stops the mcm-daemon" },
-		{ &ReadRtc,		"ReadRtc",				"reads the realtime clock of the MCU" },
-		{ &systohc,		"systohc",				"sets realtime clock on the MCU to system time" },
-		{ &hctosys,		"hctosys",				"set system time from the MCU" },
-		{ &help,		"help",					"shows this message" },
-		{ &quit,		"quit",					"closes connection to daemon" },
+		{ &DeviceReady, 	"DeviceReady",			"Tells the MCU, tht the device booted fully" },
+		{ &GetFanRpm,		"GetFanRpm",			"Reads the fan speed from the MCU" },
+		{ &GetTemp,			"GetTemperature",		"Reads the system temperatur from the MCU" },
+		//{ &EnPwrRec,		"EnablePowerRecovery",	"Device boots after power failure" },
+		//{ &DisPwrRec,		"DisablePowerRecovery",	"Device stays off after power failure" },
+		//{ &GetPwrRec,		"GetPowerRecoveryState","Read status of power failure handling" },
+		//{ &EnWOL,			"EnableWOL",			"enables wakup on magic packet" },
+		//{ &DisWOL,		"DisableWOL",			"disables wakup on magic packet" },
+		//{ &GetWOL,		"GetWOLState",			"read status of wakeonlan" },
+		{ &PwrLedOff,		"PwrLedOff",			"switches the all power leds off" },
+		{ &PwrLedBlue,		"PwrLedBlue",			"switches the power led to blue" },
+		{ &PwrLedBlueBlink,	"PwrLedBlueBlink",		"blinks the power led blue" },
+		{ &PwrLedBlueFade,	"PwrLedBlueFade",		"fades power led blue" },
+		{ &PwrLedRed,		"PwrLedRed",			"switches the power led to red" },
+		{ &PwrLedRedBlink,	"PwrLedRedBlink",		"blinks the power led red" },
+		{ &PwrLedOrange,	"PwrLedOrange",			"switches the power led to orange" },
+		{ &PwrLedOrangeBlink,"PwrLedOrangeBlink",	"blinks the power led orange" },
+		{ &Shutdown,		"ShutdownDaemon",		"stops the mcm-daemon" },
+		//{ &ReadRtc,		"ReadRtc",				"reads the realtime clock of the MCU" },
+		//{ &systohc,		"systohc",				"sets realtime clock on the MCU to system time" },
+		//{ &hctosys,		"hctosys",				"set system time from the MCU" },
+		{ &help,			"help",					"shows this message" },
+		{ &quit,			"quit",					"closes connection to daemon" },
 	};
 
 static int help(char *retMessage, int bufSize)
@@ -764,7 +790,7 @@ int HandleCommand(char *message, int messageLen, char *retMessage, int bufSize) 
 			return func(retMessage, bufSize);
 		}
 	}
-	strncpy(retMessage, "Command not Understood!\n", bufSize);
+	strncpy(retMessage, "ERR Command not Understood!\n", bufSize);
 	return 0;
 }
 
