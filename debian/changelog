@@ -1,3 +1,9 @@
+mcm-daemon (1.01) unstable; urgency=medium
+
+  * convert commands to jumptable
+
+ -- Martin Mueller <mm@ovid.sig21.net>  Sat, 21 Jan 2017 17:21:28 +0100
+
 mcm-daemon (1.00) unstable; urgency=low
 
   * Initial Release.

@@ -8,7 +8,7 @@ else
 	STRIP = $(DEB_HOST_GNU_TYPE)-strip
 endif
 
-CFLAGS += -I. -Iiniparser/src -I/usr/include
+CFLAGS += -Wall -I. -Iiniparser/src -I/usr/include
 LIBS   +=-Liniparser -liniparser
 
 DEPS = mcm.h iniparser/src/iniparser.h

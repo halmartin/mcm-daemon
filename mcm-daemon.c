@@ -41,12 +41,14 @@ vim: ts=4 ai fdm=marker
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <time.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/uio.h>
 #include <syslog.h>
+#include <ctype.h>
 #include <iniparser.h>
 
 #include "mcm.h"
@@ -68,11 +70,12 @@ DaemonConfig stDaemonConfig;
 
 int gpio_get_value(unsigned int gpio, unsigned int *value)
 {
-	int fd, len;
+	int fd;
+	//int len;
 	char buf[100];
 	char ch;
 
-	len = snprintf(buf, sizeof(buf), "%s/gpio%d/value", stDaemonConfig.gpioDir, gpio);
+	//len = snprintf(buf, sizeof(buf), "%s/gpio%d/value", stDaemonConfig.gpioDir, gpio);
 
 	fd = open(buf, O_RDONLY);
 	if (fd < 0) {
@@ -187,7 +190,7 @@ void set_blocking (int fd, int should_block)
 int CheckResponse(char *buf, char *cmd, int len)
 {
 	int i;
-	int tmp;
+	//int tmp;
 	int failure = 0;
 
 	// Attention, 5 is hardcoded here and never checked!
@@ -260,22 +263,22 @@ int _SendCommand(int fd, char *cmd, char *outArray)
 	int j;
 	ssize_t count;
 
-	char buf[15]; // We need to keep the DateAndTime values here
-	// Yes, we're sending byte by byte here - b/c the length of
-	// commands and responses can vary!
+	char buf[15];	// We need to keep the DateAndTime values here
+					// Yes, we're sending byte by byte here - b/c the length of
+					// commands and responses can vary!
 
-	ClearSerialPort(fd); // We clear the serial port in case
-	// some old data from a previous request is still pending
+	ClearSerialPort(fd);	// We clear the serial port in case
+							// some old data from a previous request is still pending
 
 	i=0;
 	do
 	{
 		count = write(fd, &cmd[i], 1);
 		i++;
-		usleep(200); // The MCU seems to need some time..
+		usleep(200);	// The MCU seems to need some time..
 		if(count != 1)
 		{
-			syslog(LOG_ERR, "Error writing byte %i: %i, count: %i\n", (i-1), cmd[i-1], count);
+			syslog(LOG_ERR, "Error writing byte %i: %i, count: %ld\n", (i-1), cmd[i-1], (long int)count);
 			return ERR_WRITE_ERROR;
 		}
 	} while(cmd[i-1] != CMD_STOP_MAGIC);
@@ -285,7 +288,7 @@ int _SendCommand(int fd, char *cmd, char *outArray)
 	{
 		n = read(fd, &buf[i], 1);
 		i++;
-		usleep(200); // todo, replace with select and timeout
+		usleep(200);	// todo, replace with select and timeout
 	} while((n == 1) && (buf[i-1] != CMD_STOP_MAGIC));
 
 
@@ -312,7 +315,7 @@ int _SendCommand(int fd, char *cmd, char *outArray)
 			{
 				outArray[j] = buf[j];
 			}
-			usleep(50000); // Give the µC some time to answer...
+			usleep(50000);	// Give the µC some time to answer...
 
 			// Wait for ACK from Serial
 			i=0;
@@ -346,346 +349,438 @@ int _SendCommand(int fd, char *cmd, char *outArray)
 	}
 }
 
-int HandleCommand(char *message, int messageLen, char *retMessage, int bufSize)
+static int DeviceReady(char *retMessage, int bufSize)
 {
-	int tmp;
-	int len;
-	int i;
-	time_t rtcTime;
-	time_t sysTime;
-	struct timeval setTime;
-	char timeStr[100];
-	struct tm strTime;
-	struct tm *strSetTime;
-	char buf[15];
-	char cmdBuf[15];
-	
-	syslog(LOG_DEBUG, "Handling Command: %s\n", message);
-
-	// This is a very ugly list of if-else and strncmp calls...
-	
-	if(strncmp(message, "DeviceReady", messageLen) == 0)
-	{
-		syslog(LOG_DEBUG, "DeviceReady\n");
-		if(SendCommand(fd, DeviceReadyCmd, NULL) == SUCCESS)
-			strncpy(retMessage, "OK\n", bufSize);
-		else
-		{
-			strncpy(retMessage, "ERR\n", bufSize);
-			return 1;
-		}
-	}
-
-	else if(strncmp(message, "GetFanRpm", messageLen) == 0)
-	{
-		syslog(LOG_DEBUG, "GetFanRpm\n");
-		if(SendCommand(fd, FanSpeedGetCmd, buf) > ERR_WRONG_ANSWER)
-		{
-			if ( buf[5] > 0 ) 
-				tmp = (int) (300000 / buf[5]);
-			else
-				tmp = 0;
-
-			snprintf(retMessage, bufSize, "%d", tmp);
-			len = strlen(retMessage);
-			if(bufSize > 1)
-			{
-				retMessage[len] = '\n';
-				retMessage[len+1] = '\0';
-			}
-		}
-		else
-		{
-			strncpy(retMessage, "ERR\n", bufSize);
-			return 1;
-		}
-	}
-	
-	else if(strncmp(message, "GetTemperature", messageLen) == 0)
-	{
-		syslog(LOG_DEBUG, "GetTemperature\n");
-		if(SendCommand(fd, ThermalStatusGetCmd, buf) > ERR_WRONG_ANSWER)
-		{
-			tmp = ThermalTable[(int)buf[5]];
-			snprintf(retMessage, bufSize, "%d", tmp);
-			len = strlen(retMessage);
-			if(bufSize > 1)
-			{
-				retMessage[len] = '\n';
-				retMessage[len+1] = '\0';
-			}
-		}
-		else
-		{
-			strncpy(retMessage, "ERR\n", bufSize);
-			return 1;
-		}
-	}
- 
- 
-	else if(strncmp(message, "quit", messageLen) == 0)
-	{
-		syslog(LOG_DEBUG, "Quit\n");
-		strncpy(retMessage, "Bye\n", bufSize);
-		return 2;
-	}
-	
-	else if(strncmp(message, "EnablePowerRecovery", messageLen) == 0)
-	{
-		syslog(LOG_DEBUG, "EnablePowerRecovery");
-		if(SendCommand(fd, APREnableCmd, NULL) == SUCCESS)
-			strncpy(retMessage, "OK\n", bufSize);
-		else
-		{
-			strncpy(retMessage, "ERR\n", bufSize);
-			return 1;
-		}
-	}
-	
-	else if(strncmp(message, "DisablePowerRecovery", messageLen) == 0)
-	{
-		syslog(LOG_DEBUG, "DisablePowerRecovery");
-		if(SendCommand(fd, APRDisableCmd, NULL) == SUCCESS)
-			strncpy(retMessage, "OK\n", bufSize);
-		else
-		{
-			strncpy(retMessage, "ERR\n", bufSize);
-			return 1;
-		}
-	}
-	
-	else if(strncmp(message, "GetPowerRecoveryState", messageLen) == 0)
-	{
-		syslog(LOG_DEBUG, "GetPowerRecoveryState");
-		if(SendCommand(fd, APRStatusCmd, buf) > ERR_WRONG_ANSWER)
-		{
-			snprintf(retMessage, bufSize, "%d", buf[5]);
-			len = strlen(retMessage);
-			if(bufSize > 1)
-			{
-				retMessage[len] = '\n';
-				retMessage[len+1] = '\0';
-			}
-		}
-		else
-		{
-			strncpy(retMessage, "ERR\n", bufSize);
-			return 1;
-		}
-	}
-	
-	else if(strncmp(message, "EnableWOL", messageLen) == 0)
-	{
-		syslog(LOG_DEBUG, "EnableWOL");
-		if(SendCommand(fd, WOLStatusEnableCmd, NULL) == SUCCESS)
-			strncpy(retMessage, "OK\n", bufSize);
-		else
-		{
-			strncpy(retMessage, "ERR\n", bufSize);
-			return 1;
-		}
-	}
-	
-	else if(strncmp(message, "DisableWOL", messageLen) == 0)
-	{
-		syslog(LOG_DEBUG, "DisableWOL");
-		if(SendCommand(fd, WOLStatusDisableCmd, NULL) == SUCCESS)
-			strncpy(retMessage, "OK\n", bufSize);
-		else
-		{
-			strncpy(retMessage, "ERR\n", bufSize);
-			return 1;
-		}
-	}
-	
-	else if(strncmp(message, "GetWOLState", messageLen) == 0)
-	{
-		syslog(LOG_DEBUG, "GetWOLState");
-		if(SendCommand(fd, WOLStatusGetCmd, buf) > ERR_WRONG_ANSWER)
-		{
-			snprintf(retMessage, bufSize, "%d", buf[5]);
-			len = strlen(retMessage);
-			if(bufSize > 1)
-			{
-				retMessage[len] = '\n';
-				retMessage[len+1] = '\0';
-			}
-		}
-		else
-		{
-			strncpy(retMessage, "ERR\n", bufSize);
-			return 1;
-		}
-	}
-	
-	else if(strncmp(message, "PowerLedOn", messageLen) == 0)
-	{
-		syslog(LOG_DEBUG, "PowerLedOn");
-		if(SendCommand(fd, PwrLedOnCmd, NULL) == SUCCESS)
-			strncpy(retMessage, "OK\n", bufSize);
-		else
-		{
-			strncpy(retMessage, "ERR\n", bufSize);
-			return 1;
-		}
-	}
-	
-	else if(strncmp(message, "PowerLedOff", messageLen) == 0)
-	{
-		syslog(LOG_DEBUG, "PowerLedOff");
-		if(SendCommand(fd, PwrLedOffCmd, NULL) == SUCCESS)
-			strncpy(retMessage, "OK\n", bufSize);
-		else
-		{
-			strncpy(retMessage, "ERR\n", bufSize);
-			return 1;
-		}
-	}
-	
-	else if(strncmp(message, "PowerLedBlink", messageLen) == 0)
-	{
-		syslog(LOG_DEBUG, "PowerLedBlink");
-		if(SendCommand(fd, PwrLedBlinkCmd, NULL) == SUCCESS)
-			strncpy(retMessage, "OK\n", bufSize);
-		else
-		{
-			strncpy(retMessage, "ERR\n", bufSize);
-			return 1;
-		}
-	}
-	
-	else if(strncmp(message, "systohc", messageLen) == 0)
-	{
-		syslog(LOG_DEBUG, "systohc");
-		// Copy the command to our buffer
-		for(i=0;i<13;i++)
-		{
-			cmdBuf[i] = WDateAndTimeCmd[i];
-		}
-		sysTime = time(NULL);
-		strSetTime = localtime(&sysTime);
-		// Put the current local time into the command buffer
-		cmdBuf[5] = (char)strSetTime->tm_sec;
-		cmdBuf[6] = (char)strSetTime->tm_min;
-		cmdBuf[7] = (char)strSetTime->tm_hour;
-		cmdBuf[8] = (char)strSetTime->tm_wday;
-		cmdBuf[9] = (char)strSetTime->tm_mday;
-		cmdBuf[10] = (char)(strSetTime->tm_mon + 1);
-		cmdBuf[11] = (char)(strSetTime->tm_year - 100);
-		// And modify the values so that the MCU understands them...
-		for(i=5;i<12;i++)
-		{
-			cmdBuf[i] = ((cmdBuf[i] / 10) << 4) + (cmdBuf[i] % 10);
-		}
-		if(SendCommand(fd, cmdBuf, NULL) == SUCCESS)
-			strncpy(retMessage, "OK\n", bufSize);
-		else
-		{
-			strncpy(retMessage, "ERR\n", bufSize);
-			return 1;
-		}
-	}
-	
-	else if(strncmp(message, "hctosys", messageLen) == 0)
-	{
-		syslog(LOG_DEBUG, "hctosys");
-		// Retrieve RTC time first
-		if(SendCommand(fd, RDateAndTimeCmd, buf) > ERR_WRONG_ANSWER)
-		{
-			for(i=5;i<12;i++)
-			{
-				buf[i] = (buf[i] & 0x0f) + 10 * ((buf[i] & 0xf0) >> 4); // The other end is a µC (doh!)
-			}
-
-			strTime.tm_year = (100 + (int)buf[11]);
-			strTime.tm_mon = buf[10]-1;
-			strTime.tm_mday = buf[9];
-			strTime.tm_hour = buf[7];
-			strTime.tm_min = buf[6];
-			strTime.tm_sec = buf[5];
-			strTime.tm_isdst = -1;
-			rtcTime = mktime(&strTime);
-			strcpy(timeStr, ctime(&rtcTime));
-			// Retrieve system time
-			sysTime = time(NULL);
-			setTime.tv_sec = rtcTime;
-			setTime.tv_usec = 0;
-			// Set the time and print the difference on success
-			if(settimeofday(&setTime, NULL) != 0)
-				strncpy(retMessage, "ERR\n", bufSize);
-			else
-				snprintf(retMessage, bufSize, "RTC: %sSys: %sDiff: %.fs\n", timeStr, ctime(&sysTime), difftime(sysTime, rtcTime));
-		}
-		else
-		{
-			strncpy(retMessage, "ERR\n", bufSize);
-			return 1;
-		}
-	}
-	
-	else if(strncmp(message, "ReadRtc", messageLen) == 0)
-	{
-		syslog(LOG_DEBUG, "ReadRtc");
-		if(SendCommand(fd, RDateAndTimeCmd, buf) > ERR_WRONG_ANSWER)
-		{
-			for(i=5;i<12;i++)
-			{
-				buf[i] = (buf[i] & 0x0f) + 10 * ((buf[i] & 0xf0) >> 4); // The other end is a µC (doh!)
-			}
-			strTime.tm_year = (100 + (int)buf[11]);
-			strTime.tm_mon = buf[10]-1;
-			strTime.tm_mday = buf[9];
-			strTime.tm_hour = buf[7];
-			strTime.tm_min = buf[6];
-			strTime.tm_sec = buf[5];
-			strTime.tm_isdst = -1;	 
-			rtcTime = mktime(&strTime);
-			strcpy(timeStr, ctime(&rtcTime));				 
-			snprintf(retMessage, bufSize, "RTC: %s", timeStr);
-		}
-		else
-		{
-			strncpy(retMessage, "ERR\n", bufSize);
-			return 1;
-		}
-	}
-	
-	else if(strncmp(message, "ShutdownDaemon", messageLen) == 0)
-	{
-		syslog(LOG_DEBUG, "ShutdownDaemon");
+	if(SendCommand(fd, DeviceReadyCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
-		return 3;
-	}
-	
-	else if(strncmp(message, "help", messageLen) == 0)
+	else
 	{
-		syslog(LOG_DEBUG, "help");
-		strncpy(retMessage, "Available Commands: DeviceReady, GetTemperature, DeviceShutdown, "
-				"EnablePowerRecovery, DisablePowerRecovery, GetPowerRecoveryState, "
-				"EnableWOL, DisableWOL, GetWOLState, PowerLedOn, "
-				"PowerLedOff, PowerLedBlink, systohc, hctosys, ReadRtc, ShutdownDaemon, quit\n", bufSize);
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int GetFanRpm(char *retMessage, int bufSize)
+{
+	int tmp, len;
+	char buf[15];
+
+	if(SendCommand(fd, FanSpeedGetCmd, buf) > ERR_WRONG_ANSWER)
+	{
+		if ( buf[5] > 0 ) 
+			tmp = (int) (300000 / buf[5]);
+		else
+			tmp = 0;
+
+		snprintf(retMessage, bufSize, "%d", tmp);
+		len = strlen(retMessage);
+		if(bufSize > 1)
+		{
+			retMessage[len] = '\n';
+			retMessage[len+1] = '\0';
+		}
 	}
 	else
 	{
-		strncpy(retMessage, "Command not Understood!\n", bufSize);
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
 	}
+	return 0;
+}
 
+static int GetTemp(char *retMessage, int bufSize)
+{
+	int tmp, len;
+	char buf[15];
+
+	if(SendCommand(fd, ThermalStatusGetCmd, buf) > ERR_WRONG_ANSWER)
+	{
+		tmp = ThermalTable[(int)buf[5]];
+		snprintf(retMessage, bufSize, "%d", tmp);
+		len = strlen(retMessage);
+		if(bufSize > 1)
+		{
+			retMessage[len] = '\n';
+			retMessage[len+1] = '\0';
+		}
+	}
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int quit(char *retMessage, int bufSize)
+{
+	strncpy(retMessage, "Bye\n", bufSize);
+	return 2;
+}
+
+static int EnPwrRec(char *retMessage, int bufSize)
+{
+	if(SendCommand(fd, APREnableCmd, NULL) == SUCCESS)
+		strncpy(retMessage, "OK\n", bufSize);
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int DisPwrRec(char *retMessage, int bufSize)
+{
+	if(SendCommand(fd, APRDisableCmd, NULL) == SUCCESS)
+		strncpy(retMessage, "OK\n", bufSize);
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int GetPwrRec(char *retMessage, int bufSize)
+{
+	int len;
+	char buf[15];
+
+
+	if(SendCommand(fd, APRStatusCmd, buf) > ERR_WRONG_ANSWER)
+	{
+		snprintf(retMessage, bufSize, "%d", buf[5]);
+		len = strlen(retMessage);
+		if(bufSize > 1)
+		{
+			retMessage[len] = '\n';
+			retMessage[len+1] = '\0';
+		}
+	}
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int EnWOL(char *retMessage, int bufSize)
+{
+	if(SendCommand(fd, WOLStatusEnableCmd, NULL) == SUCCESS)
+		strncpy(retMessage, "OK\n", bufSize);
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int DisWOL(char *retMessage, int bufSize)
+{
+	if(SendCommand(fd, WOLStatusDisableCmd, NULL) == SUCCESS)
+		strncpy(retMessage, "OK\n", bufSize);
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int GetWOL(char *retMessage, int bufSize)
+{
+	int len;
+	char buf[15];
+
+	if(SendCommand(fd, WOLStatusGetCmd, buf) > ERR_WRONG_ANSWER)
+	{
+		snprintf(retMessage, bufSize, "%d", buf[5]);
+		len = strlen(retMessage);
+		if(bufSize > 1)
+		{
+			retMessage[len] = '\n';
+			retMessage[len+1] = '\0';
+		}
+	}
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int BlueLedOn(char *retMessage, int bufSize)
+{
+	if(SendCommand(fd, PwrLedOnCmd, NULL) == SUCCESS)
+		strncpy(retMessage, "OK\n", bufSize);
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int BlueLedOff(char *retMessage, int bufSize)
+{
+	if(SendCommand(fd, PwrLedOffCmd, NULL) == SUCCESS)
+		strncpy(retMessage, "OK\n", bufSize);
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int BlueLedBlink(char *retMessage, int bufSize)
+{
+	if(SendCommand(fd, PwrLedBlinkCmd, NULL) == SUCCESS)
+		strncpy(retMessage, "OK\n", bufSize);
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int RedLedOn(char *retMessage, int bufSize)
+{
+	if(SendCommand(fd, PwrLedOnCmd, NULL) == SUCCESS)
+		strncpy(retMessage, "OK\n", bufSize);
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int RedLedOff(char *retMessage, int bufSize)
+{
+	if(SendCommand(fd, PwrLedOffCmd, NULL) == SUCCESS)
+		strncpy(retMessage, "OK\n", bufSize);
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int RedLedBlink(char *retMessage, int bufSize)
+{
+	if(SendCommand(fd, PwrLedBlinkCmd, NULL) == SUCCESS)
+		strncpy(retMessage, "OK\n", bufSize);
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int Shutdown(char *retMessage, int bufSize)
+{
+	strncpy(retMessage, "OK\n", bufSize);
+	return 3;
+}
+
+static int ReadRtc(char *retMessage, int bufSize)
+{
+	int i;
+	char buf[15];
+	struct tm strTime;
+	char timeStr[100];
+	time_t rtcTime;
+
+	if(SendCommand(fd, RDateAndTimeCmd, buf) > ERR_WRONG_ANSWER)
+	{
+		for(i=5;i<12;i++)
+		{
+			buf[i] = (buf[i] & 0x0f) + 10 * ((buf[i] & 0xf0) >> 4); // The other end is a µC (doh!)
+		}
+		strTime.tm_year = (100 + (int)buf[11]);
+		strTime.tm_mon = buf[10]-1;
+		strTime.tm_mday = buf[9];
+		strTime.tm_hour = buf[7];
+		strTime.tm_min = buf[6];
+		strTime.tm_sec = buf[5];
+		strTime.tm_isdst = -1;	 
+		rtcTime = mktime(&strTime);
+		strcpy(timeStr, ctime(&rtcTime));				 
+		snprintf(retMessage, bufSize, "RTC: %s", timeStr);
+	}
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int systohc(char *retMessage, int bufSize)
+{
+	int i;
+	char cmdBuf[15];
+	time_t sysTime;
+	struct tm *strSetTime;
+
+	// Copy the command to our buffer
+	for(i=0;i<13;i++)
+	{
+		cmdBuf[i] = WDateAndTimeCmd[i];
+	}
+	sysTime = time(NULL);
+	strSetTime = localtime(&sysTime);
+	// Put the current local time into the command buffer
+	cmdBuf[5] = (char)strSetTime->tm_sec;
+	cmdBuf[6] = (char)strSetTime->tm_min;
+	cmdBuf[7] = (char)strSetTime->tm_hour;
+	cmdBuf[8] = (char)strSetTime->tm_wday;
+	cmdBuf[9] = (char)strSetTime->tm_mday;
+	cmdBuf[10] = (char)(strSetTime->tm_mon + 1);
+	cmdBuf[11] = (char)(strSetTime->tm_year - 100);
+	// And modify the values so that the MCU understands them...
+	for(i=5;i<12;i++)
+	{
+		cmdBuf[i] = ((cmdBuf[i] / 10) << 4) + (cmdBuf[i] % 10);
+	}
+	if(SendCommand(fd, cmdBuf, NULL) == SUCCESS)
+		strncpy(retMessage, "OK\n", bufSize);
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int hctosys(char *retMessage, int bufSize)
+{
+	int i;
+	struct tm strTime;
+	struct timeval setTime;
+	time_t rtcTime;
+	time_t sysTime;
+	char timeStr[100];
+	char buf[15];
+
+	if(SendCommand(fd, RDateAndTimeCmd, buf) > ERR_WRONG_ANSWER)
+	{
+		for(i=5;i<12;i++)
+		{
+			buf[i] = (buf[i] & 0x0f) + 10 * ((buf[i] & 0xf0) >> 4); // The other end is a µC (doh!)
+		}
+
+		strTime.tm_year = (100 + (int)buf[11]);
+		strTime.tm_mon = buf[10]-1;
+		strTime.tm_mday = buf[9];
+		strTime.tm_hour = buf[7];
+		strTime.tm_min = buf[6];
+		strTime.tm_sec = buf[5];
+		strTime.tm_isdst = -1;
+		rtcTime = mktime(&strTime);
+		strcpy(timeStr, ctime(&rtcTime));
+		// Retrieve system time
+		sysTime = time(NULL);
+		setTime.tv_sec = rtcTime;
+		setTime.tv_usec = 0;
+		// Set the time and print the difference on success
+		if(settimeofday(&setTime, NULL) != 0)
+			strncpy(retMessage, "ERR\n", bufSize);
+		else
+			snprintf(retMessage, bufSize, "RTC: %sSys: %sDiff: %.fs\n", timeStr, ctime(&sysTime), difftime(sysTime, rtcTime));
+	}
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int help(char *retMessage, int bufSize);
+
+DaemonCommand cmdTable[] = {
+		{ &DeviceReady, "DeviceReady",			"Tells the MCU, tht the device booted fully" },
+		{ &GetFanRpm,	"GetFanRpm",			"Reads the fan speed from the MCU" },
+		{ &GetTemp,		"GetTemperature",		"Reads the system temperatur from the MCU" },
+		{ &EnPwrRec,	"EnablePowerRecovery",	"Device boots after power failure" },
+		{ &DisPwrRec,	"DisablePowerRecovery",	"Device stays off after power failure" },
+		{ &GetPwrRec,	"GetPowerRecoveryState","Read status of power failure handling" },
+		{ &EnWOL,		"EnableWOL",			"enables wakup on magic packet" },
+		{ &DisWOL,		"DisableWOL",			"disables wakup on magic packet" },
+		{ &GetWOL,		"GetWOLState",			"read status of wakeonlan" },
+		{ &BlueLedOn,	"BlueLedOn",			"switches the blue power led on" },
+		{ &BlueLedOff,	"BlueLedOff",			"switches the blue power led off" },
+		{ &BlueLedBlink,"BlueLedBlink",			"blinks the blue power led" },
+		{ &RedLedOn,	"RedLedOn",				"switches the blue power led on" },
+		{ &RedLedOff,	"RedLedOff",			"switches the blue power led off" },
+		{ &RedLedBlink,	"RedLedBlink",			"blinks the blue power led" },
+		{ &Shutdown,	"ShutdownDaemon",		"stops the mcm-daemon" },
+		{ &ReadRtc,		"ReadRtc",				"reads the realtime clock of the MCU" },
+		{ &systohc,		"systohc",				"sets realtime clock on the MCU to system time" },
+		{ &hctosys,		"hctosys",				"set system time from the MCU" },
+		{ &help,		"help",					"shows this message" },
+		{ &quit,		"quit",					"closes connection to daemon" },
+	};
+
+static int help(char *retMessage, int bufSize)
+{
+	int x,y,len,cmds;
+	char fmt[20];
+
+	cmds = sizeof(cmdTable)/sizeof(DaemonCommand);
+
+	len=0;
+	for (x=0; x<cmds; x++) {
+		if (strlen(cmdTable[x].name)>len)
+			len = strlen(cmdTable[x].name);
+	}
+	snprintf((char *)&fmt, 20, "%%%ds  %%s\n", len);
+	y = 0;
+	for (x=0; x<cmds; x++) {
+		y += snprintf(&retMessage[y], bufSize - y, fmt, cmdTable[x].name, cmdTable[x].desc);
+	}
+	return 0;
+}
+
+int HandleCommand(char *message, int messageLen, char *retMessage, int bufSize) {
+	uint8_t r,x;
+	int (*func)(char *retMessage, int bufSize);
+
+	syslog(LOG_DEBUG, "Handling Command: %s\n", message);
+	for (x=0;x<sizeof(cmdTable)/sizeof(DaemonCommand); x++) {
+		if (strncmp(message,cmdTable[x].name, messageLen) == 0) {
+			syslog(LOG_DEBUG, "%s\n", cmdTable[x].name);
+			func = cmdTable[x].func;
+			return func(retMessage, bufSize);
+		}
+	}
+	strncpy(retMessage, "Command not Understood!\n", bufSize);
 	return 0;
 }
 
 int main(int argc, char *argv[])
 {
-	char response[500];
+	char response[9000];
 	int i;
 	pid_t pid;
 	pid_t sid;
-	int powerBtn;
-	int pressed;
+	//int powerBtn;
+	//int pressed;
 	int opt;
 	int sleepCount;
 	int pollTimeMs;
-	int readRtcOnStartup = 0;
-	char buf[100];
+	//int readRtcOnStartup = 0;
+	//char buf[100];
 	char *configPath = "/etc/mcm-daemon.ini";
 	char msgBuf[15];
 	int temperature;
@@ -700,7 +795,7 @@ int main(int argc, char *argv[])
 	char message[500];
 	dictionary *iniFile;
 	socklen_t namelength;
-	pressed = 0;
+	//pressed = 0;
 	nfds = 1;
 	opt = 1;
 	sleepCount = 0;
@@ -736,10 +831,10 @@ int main(int argc, char *argv[])
 									 "Unknown option character `\\x%x'.\n",
 									 optopt);
 				fprintf(stderr, "Usage: %s [-f] [-c configPath] [-d]\n", argv[0]);
-				fprintf(stderr, "			 where\n");
-				fprintf(stderr, "				 -f							don't detach\n");
-				fprintf(stderr, "				 -c configPath	 path to .ini\n");
-				fprintf(stderr, "				 -d							debug (implies -f)\n");
+				fprintf(stderr, "		 where\n");
+				fprintf(stderr, "			 -f					don't detach\n");
+				fprintf(stderr, "			 -c configPath		path to .ini\n");
+				fprintf(stderr, "			 -d					debug (implies -f)\n");
 				return EXIT_FAILURE;
 		}
 	
@@ -752,19 +847,19 @@ int main(int argc, char *argv[])
 	// Load our configuration file or use default values 
 	// if it doesn't exist!
 	iniFile = iniparser_load(configPath);
-	stDaemonConfig.portName = iniparser_getstring(iniFile, "Serial:Port", "/dev/ttyS1");
-	stDaemonConfig.syncOnStartup = iniparser_getint(iniFile, "Daemon:SyncTimeOnStartup", 0);
-	stDaemonConfig.fanPollTime = iniparser_getint(iniFile, "Fan:PollTime", 15);
-	stDaemonConfig.tempLow = iniparser_getint(iniFile, "Fan:TempLow", 45);
-	stDaemonConfig.tempHigh = iniparser_getint(iniFile, "Fan:TempHigh", 50);
-	stDaemonConfig.hysteresis = iniparser_getint(iniFile, "Fan:Hysteresis", 2);
-	stDaemonConfig.gpioPollTime = iniparser_getint(iniFile, "GPIO:PollTime", 1);
-	stDaemonConfig.gpioDir = iniparser_getstring(iniFile, "GPIO:SysfsGpioDir", "/sys/class/gpio");
-	stDaemonConfig.serverAddr = iniparser_getstring(iniFile, "Daemon:ServerAddr", "0.0.0.0");
-	stDaemonConfig.serverPort = iniparser_getint(iniFile, "Daemon:ServerPort", 57367);
-	stDaemonConfig.pollGpio = iniparser_getint(iniFile, "Daemon:PollGPIO", 1);
-	stDaemonConfig.syncOnShutdown = iniparser_getint(iniFile, "Daemon:SyncTimeOnShutdown", 0);
-	stDaemonConfig.nRetries = iniparser_getint(iniFile, "Serial:NumberOfRetries", 5);
+	stDaemonConfig.portName			= iniparser_getstring(iniFile,	"Serial:Port", "/dev/ttyS1");
+	stDaemonConfig.syncOnStartup	= iniparser_getint(iniFile,		"Daemon:SyncTimeOnStartup", 0);
+	stDaemonConfig.fanPollTime		= iniparser_getint(iniFile,		"Fan:PollTime", 15);
+	stDaemonConfig.tempLow			= iniparser_getint(iniFile,		"Fan:TempLow", 45);
+	stDaemonConfig.tempHigh			= iniparser_getint(iniFile,		"Fan:TempHigh", 50);
+	stDaemonConfig.hysteresis		= iniparser_getint(iniFile,		"Fan:Hysteresis", 2);
+	stDaemonConfig.gpioPollTime		= iniparser_getint(iniFile,		"GPIO:PollTime", 1);
+	stDaemonConfig.gpioDir			= iniparser_getstring(iniFile,	"GPIO:SysfsGpioDir", "/sys/class/gpio");
+	stDaemonConfig.serverAddr		= iniparser_getstring(iniFile,	"Daemon:ServerAddr", "0.0.0.0");
+	stDaemonConfig.serverPort		= iniparser_getint(iniFile,		"Daemon:ServerPort", 57367);
+	stDaemonConfig.pollGpio			= iniparser_getint(iniFile,		"Daemon:PollGPIO", 1);
+	stDaemonConfig.syncOnShutdown	= iniparser_getint(iniFile,		"Daemon:SyncTimeOnShutdown", 0);
+	stDaemonConfig.nRetries			= iniparser_getint(iniFile,		"Serial:NumberOfRetries", 5);
 
 
 	// Setup syslog
@@ -854,7 +949,7 @@ int main(int argc, char *argv[])
 	if (fd < 0)
 	{
 		syslog(LOG_ERR, "error %d opening %s: %s", errno, stDaemonConfig.portName, strerror (errno));
-		return;
+		return 0;
 	}
 
 	set_interface_attribs (fd, B19200, 0);	// set speed to 19,200 bps, 8n1 (no parity) for WD MCM gen2; EX2u
@@ -1052,10 +1147,12 @@ int main(int argc, char *argv[])
 					}
 					if(msgIdx > 1)
 						if(message[msgIdx-1] == '\n')
+						{
 							if(message[msgIdx-2] == '\r')
 								message[msgIdx-2] = '\0';
 							else
 								message[msgIdx-1] = '\0';
+						}
 
 					syslog(LOG_DEBUG, "Normal message :	%.*s\n",retval,message);
 					msgIdx = HandleCommand(message, msgIdx, response, sizeof(response));

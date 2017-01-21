@@ -34,3 +34,7 @@ debian/*.debhelper
 
 # iniparser repo
 iniparser
+
+# local tests
+test.c
+test

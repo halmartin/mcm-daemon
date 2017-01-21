@@ -15,14 +15,20 @@ typedef struct
 	int serverPort;
 	int goDaemon;
 	int debug;
-	char *gpioDir;
-	char *portName;
-	char *serverAddr;
+	const char *gpioDir;
+	const char *portName;
+	const char *serverAddr;
 	int tempLow;
 	int tempHigh;
 	int hysteresis;
 	int nRetries;
 } DaemonConfig;
+
+typedef struct DaemonCommand {
+	const void *func;
+	const char *name;
+	const char *desc;
+} DaemonCommand;
 
 /** <i>Function</i> that reads a GPIO value from sysfs interface.
 	@param gpio The GPIO number to read
