@@ -4,6 +4,7 @@ vim: ts=4 ai fdm=marker
 	Simple system daemon for MyCloudMirror gen2; Ex2 Ultra
 
 	(c) 2013 Andreas Boehler, andreas _AT_ aboehler.at
+	(c) 2017 Martin Mueller, mm _AT_ sig21.net
 
 	mod by C. Schiller, schreibcarl@gmail.com
 
@@ -126,6 +127,7 @@ static void sighandler(int sig)
 		cleanup(0, ls, 1);
 		if(stDaemonConfig.syncOnShutdown)
 			HandleCommand("systohc", 7, NULL, 0);
+		exit(EXIT_SUCCESS);
 		break;
 	}
 }
@@ -349,6 +351,33 @@ int _SendCommand(int fd, char *cmd, char *outArray)
 	}
 }
 
+static int readFan()
+{
+	int rpm;
+	char buf[10];
+	if(SendCommand(fd, FanSpeedGetCmd, buf) > ERR_WRONG_ANSWER)
+	{
+		if ( buf[5] > 0 )
+			rpm = (int) (300000 / buf[5]);
+		else
+			rpm = 0;
+
+		return rpm;
+	}
+	else
+		return ERR_WRONG_ANSWER;
+}
+
+static int readSysTemp()
+{
+	char buf[15];
+
+	if(SendCommand(fd, ThermalStatusGetCmd, buf) > ERR_WRONG_ANSWER)
+		return ThermalTable[(int)buf[5]];
+	else
+		return ERR_WRONG_ANSWER;
+}
+
 static int DeviceReady(char *retMessage, int bufSize)
 {
 	if(SendCommand(fd, DeviceReadyCmd, NULL) == SUCCESS)
@@ -364,51 +393,41 @@ static int DeviceReady(char *retMessage, int bufSize)
 static int GetFanRpm(char *retMessage, int bufSize)
 {
 	int tmp, len;
-	char buf[15];
 
-	if(SendCommand(fd, FanSpeedGetCmd, buf) > ERR_WRONG_ANSWER)
+	tmp = readFan();
+	if ( tmp <= ERR_WRONG_ANSWER )
 	{
-		if ( buf[5] > 0 ) 
-			tmp = (int) (300000 / buf[5]);
-		else
-			tmp = 0;
-
-		snprintf(retMessage, bufSize, "%d", tmp);
-		len = strlen(retMessage);
-		if(bufSize > 1)
-		{
-			retMessage[len] = '\n';
-			retMessage[len+1] = '\0';
-		}
-	}
-	else
-	{
-		strncpy(retMessage, "ERR\n", bufSize);
+		snprintf(retMessage, bufSize, "ERR %d\n", tmp);
 		return 1;
+	}
+
+	snprintf(retMessage, bufSize, "%d", tmp);
+	len = strlen(retMessage);
+	if(bufSize > 1)
+	{
+		retMessage[len] = '\n';
+		retMessage[len+1] = '\0';
 	}
 	return 0;
 }
 
-static int GetTemp(char *retMessage, int bufSize)
+static int GetSysTemp(char *retMessage, int bufSize)
 {
 	int tmp, len;
-	char buf[15];
 
-	if(SendCommand(fd, ThermalStatusGetCmd, buf) > ERR_WRONG_ANSWER)
+	tmp = readSysTemp();
+	if ( tmp <= ERR_WRONG_ANSWER )
 	{
-		tmp = ThermalTable[(int)buf[5]];
-		snprintf(retMessage, bufSize, "%d", tmp);
-		len = strlen(retMessage);
-		if(bufSize > 1)
-		{
-			retMessage[len] = '\n';
-			retMessage[len+1] = '\0';
-		}
-	}
-	else
-	{
-		strncpy(retMessage, "ERR\n", bufSize);
+		snprintf(retMessage, bufSize, "ERR %d\n", tmp);
 		return 1;
+	}
+
+	snprintf(retMessage, bufSize, "%d", tmp);
+	len = strlen(retMessage);
+	if(bufSize > 1)
+	{
+		retMessage[len] = '\n';
+		retMessage[len+1] = '\0';
 	}
 	return 0;
 }
@@ -656,6 +675,9 @@ static int systohc(char *retMessage, int bufSize)
 	time_t sysTime;
 	struct tm *strSetTime;
 
+	// We do nothing, since it doesn't work yet
+	return 0;
+
 	// Copy the command to our buffer
 	for(i=0;i<13;i++)
 	{
@@ -735,7 +757,7 @@ static int help(char *retMessage, int bufSize);
 DaemonCommand cmdTable[] = {
 		{ &DeviceReady, 	"DeviceReady",			"Tells the MCU, tht the device booted fully" },
 		{ &GetFanRpm,		"GetFanRpm",			"Reads the fan speed from the MCU" },
-		{ &GetTemp,			"GetTemperature",		"Reads the system temperatur from the MCU" },
+		{ &GetSysTemp,		"GetSysTemperature",	"Reads the system temperatur from the MCU" },
 		//{ &EnPwrRec,		"EnablePowerRecovery",	"Device boots after power failure" },
 		//{ &DisPwrRec,		"DisablePowerRecovery",	"Device stays off after power failure" },
 		//{ &GetPwrRec,		"GetPowerRecoveryState","Read status of power failure handling" },
@@ -779,7 +801,7 @@ static int help(char *retMessage, int bufSize)
 }
 
 int HandleCommand(char *message, int messageLen, char *retMessage, int bufSize) {
-	uint8_t r,x;
+	uint8_t x;
 	int (*func)(char *retMessage, int bufSize);
 
 	syslog(LOG_DEBUG, "Handling Command: %s\n", message);
