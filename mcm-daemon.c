@@ -29,6 +29,10 @@ vim: ts=4 ai fdm=marker
 	this program. If not, see <http://www.gnu.org/licenses/>.
 
 */
+#define _GNU_SOURCE
+
+#define PORTS  "/sys/class/ata_port"
+
 
 #include <errno.h>
 #include <termios.h>
@@ -45,6 +49,8 @@ vim: ts=4 ai fdm=marker
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <time.h>
+#include <string.h>
+#include <dirent.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/uio.h>
@@ -351,6 +357,183 @@ int _SendCommand(int fd, char *cmd, char *outArray)
 	}
 }
 
+static char* searchDisk(char *base, char *pref)
+{
+	DIR *dir;
+	struct dirent *entry;
+	char next[PATH_MAX];
+	char *tmp;
+
+	//int ports;
+	//ports = numAtaPorts();
+	//printf("found %d ata ports\n", ports);
+
+	tmp = NULL;
+	errno = 0;
+	dir = opendir(base);
+	if ( errno ) {
+		printf("error(%d) opening directory: %s\n",errno, base);
+		return NULL;
+	}
+	//printf("	searching: %s for %s\n", base, pref);
+	while ( (entry = readdir(dir)) != 0 ) {
+		if ( strcmp("..",entry->d_name) == 0 || strcmp(".",entry->d_name) == 0 )
+			continue;
+		//printf("	%s\n",entry->d_name);
+		if ( strcmp(pref, "host") == 0 ) {
+			if ( strncmp(pref,entry->d_name, strlen(pref)) == 0 ) {
+				snprintf(next, PATH_MAX, "%s/%s", base, entry->d_name);
+				tmp = searchDisk(next, "target");
+			} else
+				continue;
+		} else if ( strcmp(pref, "target") == 0 ) {
+			if ( strncmp(pref,entry->d_name, strlen(pref)) == 0 ) {
+				snprintf(next, PATH_MAX, "%s/%s", base, entry->d_name);
+				tmp = searchDisk(next, "");
+			} else
+				continue;
+		} else if ( strlen(pref) == 0 ) {
+			if ( strspn(entry->d_name, "0123456789:") == strlen(entry->d_name) ) {
+				snprintf(next, PATH_MAX, "%s/%s", base, entry->d_name);
+				tmp = searchDisk(next, "block");
+			} else
+				continue;
+		} else if ( strcmp(pref, "block") == 0 ) {
+			if ( strncmp(pref,entry->d_name, strlen(pref)) == 0 ) {
+				snprintf(next, PATH_MAX, "%s/%s", base, entry->d_name);
+				tmp = searchDisk(next, "sd");
+			} else
+				continue;
+		} else if ( strcmp(pref, "sd") == 0 ) {
+			if ( strncmp("sd", entry->d_name, 2) == 0 ) {
+				asprintf(&tmp, "%s/%s", "/dev", entry->d_name);
+				//printf("	%s\n", tmp);
+				break;
+			} else
+				continue;
+		}
+	}
+	closedir(dir);
+
+	return tmp;
+}
+
+static int numAtaPorts(void) {
+	int num;
+	DIR *dir;
+	struct dirent *entry;
+
+	num = 0;
+	errno = 0;
+	dir = opendir(PORTS);
+	if ( errno )
+		printf("error %d enumerating ata ports\n",errno);
+	else {
+		while ( (entry = readdir(dir)) != 0 ) {
+			if ( strncmp("ata",entry->d_name, 3) == 0 )
+				num++;
+		}
+		closedir(dir);
+	}
+	return num;
+}
+
+static char *getDisk(int disk) {
+	int i;
+	DIR *dir;
+	struct dirent *entry;
+	char *path, *tmp;
+
+	tmp = NULL;
+	if ( disk > numAtaPorts() ) {
+		//printf("disk %d > number of ports\n", disk);
+		return NULL;
+	}
+	errno = 0;
+	dir = opendir(PORTS);
+	if ( errno )
+		printf("error %d enumerating ata ports\n",errno);
+	else {
+		i = 0;
+		while ( (entry = readdir(dir)) != 0 ) {
+			if ( strncmp("ata",entry->d_name, 3) == 0 ) {
+				i++;
+				if ( i == disk ) {
+					asprintf(&path, "%s/%s/device",PORTS, entry->d_name);
+					tmp = searchDisk(path, "host");
+					if (path)
+						free(path);
+				}
+			}
+		}
+	}
+	return tmp;
+}
+
+static int parseTemp(char *buf) {
+	char *endptr = NULL;
+	int temp, x;
+	char *tok;
+	
+	x = 1;
+	tok = strtok(buf, "\t\r\n ");
+	while ( x < 10 && tok != NULL  ) {
+		tok = strtok(NULL, "\t\r\n ");
+		x++;
+	}
+	errno = 0;
+	if (tok != NULL)
+		temp = (int) strtol(tok, &endptr, 0);
+	
+	if ( errno == 0 && tok != endptr )
+		return temp;
+
+	return -1;
+}
+
+static int hdtemp(int disk) {
+	int fd[2];
+	pid_t pid;
+	char buf[2048], *dev;
+	int tmp, temp;
+
+	dev = getDisk(disk);
+	if ( dev == NULL )
+		return 0;
+
+	pipe(fd);
+	pid = fork();
+	if (pid < 0) {
+		printf("fork() failed\n");
+		return -1;
+	}
+	if ( pid == 0 ) {
+		/* child to start smartctl */
+		dup2(fd[1], 1);
+		close(fd[0]);
+		execlp("smartctl", "smartctl", "-A", dev, NULL);
+	}
+	free(dev);
+	dup2(fd[0],0);
+	close(fd[1]);
+	tmp = 0;
+	temp = 0;
+	while ( fgets(buf, 1024, stdin ) ) {
+		if ( strncmp("190", buf, 3) == 0 ) {
+			//printf("%s",buf);
+			tmp = parseTemp(buf);
+		}
+		if ( strncmp("194", buf, 3) == 0 ) {
+			//printf("%s",buf);
+			tmp = parseTemp(buf);
+		}
+		if ( tmp > temp)
+			temp = tmp;
+	}
+
+	return temp;
+}
+
 static int readFan()
 {
 	int rpm;
@@ -362,20 +545,44 @@ static int readFan()
 		else
 			rpm = 0;
 
+		syslog(LOG_DEBUG, "Read fan rpm: %i\n", rpm);
 		return rpm;
 	}
-	else
-		return ERR_WRONG_ANSWER;
+		
+	syslog(LOG_DEBUG, "Error getting fan speed\n");
+	return ERR_WRONG_ANSWER;
 }
 
 static int readSysTemp()
 {
 	char buf[15];
+	int temp;
 
 	if(SendCommand(fd, ThermalStatusGetCmd, buf) > ERR_WRONG_ANSWER)
-		return ThermalTable[(int)buf[5]];
-	else
-		return ERR_WRONG_ANSWER;
+	{
+		temp = ThermalTable[(int)buf[5]];
+		syslog(LOG_DEBUG, "Read system tempterature: %i °C\n", temp);
+		return temp;
+	}
+
+	syslog(LOG_DEBUG, "Error reading system temperature\n");
+	return ERR_WRONG_ANSWER;
+}
+
+static int setFanSpeed(char val)
+{
+	char buf[10];
+	int i;
+
+	for (i=0;i<=6;i++) {
+		buf[i] = FanSpeedSetCmd[i];
+	}
+	buf[3] = val;
+	buf[7] = 0;
+	if(SendCommand(fd, buf, NULL) == SUCCESS)
+		return 0;
+
+	return 1;
 }
 
 static int DeviceReady(char *retMessage, int bufSize)
@@ -752,6 +959,26 @@ static int hctosys(char *retMessage, int bufSize)
 	return 0;
 }
 
+static int hddtemp(char *retMessage, int bufSize) {
+
+	char *tmp;
+	char buf[256];
+	int i, c, pos;
+
+	pos = 0;
+	for (i=1;i<=numAtaPorts();i++) {
+		tmp = getDisk(i);
+		if ( tmp ) {
+			c = snprintf(buf, 256, "slot %d %s temp: %d\n",i,tmp,hdtemp(i));
+			free(tmp);
+			strncpy(&retMessage[pos], buf, bufSize - pos);
+			pos += c;
+		}
+	}
+
+	return 0;
+}
+
 static int help(char *retMessage, int bufSize);
 
 DaemonCommand cmdTable[] = {
@@ -773,6 +1000,7 @@ DaemonCommand cmdTable[] = {
 		{ &PwrLedOrange,	"PwrLedOrange",			"switches the power led to orange" },
 		{ &PwrLedOrangeBlink,"PwrLedOrangeBlink",	"blinks the power led orange" },
 		{ &Shutdown,		"ShutdownDaemon",		"stops the mcm-daemon" },
+		{ &hddtemp,			"hddTemp",				"print harddisk temperatures" },
 		//{ &ReadRtc,		"ReadRtc",				"reads the realtime clock of the MCU" },
 		//{ &systohc,		"systohc",				"sets realtime clock on the MCU to system time" },
 		//{ &hctosys,		"hctosys",				"set system time from the MCU" },
@@ -802,6 +1030,8 @@ static int help(char *retMessage, int bufSize)
 
 int HandleCommand(char *message, int messageLen, char *retMessage, int bufSize) {
 	uint8_t x;
+	long num;
+	char *endptr = NULL;
 	int (*func)(char *retMessage, int bufSize);
 
 	syslog(LOG_DEBUG, "Handling Command: %s\n", message);
@@ -812,7 +1042,24 @@ int HandleCommand(char *message, int messageLen, char *retMessage, int bufSize) 
 			return func(retMessage, bufSize);
 		}
 	}
-	strncpy(retMessage, "ERR Command not Understood!\n", bufSize);
+	errno = 0;
+	num = strtol(message, &endptr, 0);
+	if ( errno == 0 && message != endptr )
+	{
+		if ( num == 0 || (num >= 80 && num <= 255) ) {
+			x = setFanSpeed((char)num);
+			if ( x == 1 ) 
+				strncpy(retMessage, "ERR set fan speed failed (0, 80 - 255)\n", bufSize);
+			else
+				strncpy(retMessage, "OK\n", bufSize);
+
+			return x;
+		} else {
+			strncpy(retMessage, "ERR fan speed out of range\n", bufSize);
+			return 0;
+		}
+	}
+	strncpy(retMessage, "ERR Command not Understood\n", bufSize);
 	return 0;
 }
 
@@ -831,7 +1078,7 @@ int main(int argc, char *argv[])
 	//char buf[100];
 	char *configPath = "/etc/mcm-daemon.ini";
 	char msgBuf[15];
-	int temperature;
+	int sysTemp;
 	int fanSpeed;
 	int fanRpm;
 	struct sockaddr_in s_name;
@@ -1031,28 +1278,12 @@ int main(int argc, char *argv[])
 	{
 		sleepCount = 0;
 
-		if(SendCommand(fd, FanSpeedGetCmd, msgBuf) > ERR_WRONG_ANSWER)
-		{
-			if ( msgBuf[5] == 0 )
-				fanRpm = 0;
-			else
-				fanRpm = (int) (300000 / (uint8_t) msgBuf[5]);
-		}
-		else
-		{
-			fanRpm = -1;
-		}
-		syslog(LOG_DEBUG, "Read fan rpm: %i\n", fanRpm);
+		fanRpm = readFan();
+		sysTemp = readSysTemp();
 
-		if(SendCommand(fd, ThermalStatusGetCmd, msgBuf) > ERR_WRONG_ANSWER)
-			temperature = msgBuf[5];
-		else
-			temperature = 0;
-		if(temperature > 0)
+		if(sysTemp > 0)
 		{
-			temperature = ThermalTable[temperature];
-			syslog(LOG_DEBUG, "Read Temperature: %i\n", temperature);
-			if(temperature < (stDaemonConfig.tempLow - stDaemonConfig.hysteresis))
+			if(sysTemp < (stDaemonConfig.tempLow - stDaemonConfig.hysteresis))
 			{
 				if(fanSpeed != 0)
 				{
@@ -1061,7 +1292,7 @@ int main(int argc, char *argv[])
 					fanSpeed = 0;
 				}
 			}
-			else if(temperature < stDaemonConfig.tempLow)
+			else if(sysTemp < stDaemonConfig.tempLow)
 			{
 				if(fanSpeed > 1)
 				{
@@ -1070,7 +1301,7 @@ int main(int argc, char *argv[])
 					fanSpeed = 1;
 				}
 			}
-			else if(temperature < (stDaemonConfig.tempHigh - stDaemonConfig.hysteresis))
+			else if(sysTemp < (stDaemonConfig.tempHigh - stDaemonConfig.hysteresis))
 			{
 				if(fanSpeed != 1)
 				{
@@ -1079,7 +1310,7 @@ int main(int argc, char *argv[])
 					fanSpeed = 1;
 				}
 			}
-			else if(temperature < stDaemonConfig.tempHigh)
+			else if(sysTemp < stDaemonConfig.tempHigh)
 			{
 				if(fanSpeed < 1)
 				{
@@ -1098,21 +1329,17 @@ int main(int argc, char *argv[])
 				}
 			}
 		}
-		else
-		{
-			syslog(LOG_ERR, "Error reading Temperature!\n");
-		}
 
-
-		while((sleepCount	* pollTimeMs) < (stDaemonConfig.fanPollTime * 1000))
+		while((sleepCount * pollTimeMs) < (stDaemonConfig.fanPollTime * 1000))
 		{
 			sleepCount++;
 
-			ret=poll(fds,nfds,pollTimeMs); // Time out after pollTimeMs
+			ret = poll(fds,nfds,pollTimeMs); // Time out after pollTimeMs
 			if (ret == -1){
 				syslog(LOG_ERR, "poll");
 				exit(EXIT_FAILURE);
 			}
+
 			for (i=0;(i<nfds) && (ret);i++)
 			{
 				if (!(fds+i)->revents)
