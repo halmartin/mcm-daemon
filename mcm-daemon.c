@@ -45,6 +45,7 @@ vim: ts=4 ai fdm=marker
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <string.h>
 #include <dirent.h>
@@ -489,6 +490,7 @@ static int parseTemp(char *buf) {
 
 static int readHddTemp(int disk) {
 	int fd[2];
+	int status;
 	pid_t pid;
 	char buf[2048], *dev;
 	int tmp, temp;
@@ -525,6 +527,7 @@ static int readHddTemp(int disk) {
 			temp = tmp;
 	}
 	//close(fd[0]);
+	wait(&status);
 	free(dev);
 
 	return temp;
