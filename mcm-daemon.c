@@ -1021,11 +1021,11 @@ static int checkTemps(void) {
 
 	if ( temp == 0 ) {
 		for (i=0;i<ataPorts;i++) {
-			if (tdisk[i].tempOld < tdisk[i].temp && tdisk[i].temp > 0)
+			if (tdisk[i].tempOld < tdisk[i].temp && tdisk[i].temp > daemonCfg.tempDiskLow)
 			temp++;
 		}
 
-		if ( tsys.tempOld < tsys.temp )
+		if ( tsys.tempOld < tsys.temp && tsys.temp > daemonCfg.tempSysLow )
 			temp++;
 
 		if ( temp > 0 )
@@ -1034,10 +1034,10 @@ static int checkTemps(void) {
 
 	if ( temp == 0 ) {
 		for (i=0;i<ataPorts;i++) {
-			if (tdisk[i].tempOld > tdisk[i].temp && tdisk[i].temp > 0)
+			if (tdisk[i].tempOld > tdisk[i].temp && tdisk[i].temp > daemonCfg.tempDiskLow)
 				temp--;
 		}
-		if ( tsys.tempOld > tsys.temp )
+		if ( tsys.tempOld > tsys.temp && tsys.temp > daemonCfg.tempSysLow )
 			temp--;
 
 		if ( temp < 0 )
