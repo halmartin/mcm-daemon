@@ -9,9 +9,9 @@ vim: ts=4 ai fdm=marker
 	mod by C. Schiller, schreibcarl@gmail.com
 
 	This code is based on a few other people's work and in parts shamelessly copied.
-	The ThermalTable was provided by Lorenzo Martignoni and the fan control 
+	The ThermalTable was provided by Lorenzo Martignoni and the fan control
 	algorithm is based on his fan-daemon.py implementation.
-	
+
 	The MCU protocol was reverse engineered by strace() calls to up_send_daemon and
 	up_read_daemon of the original firmware.
 
@@ -30,9 +30,6 @@ vim: ts=4 ai fdm=marker
 
 */
 #define _GNU_SOURCE
-
-#define PORTS  "/sys/class/ata_port"
-
 
 #include <errno.h>
 #include <termios.h>
@@ -63,8 +60,12 @@ vim: ts=4 ai fdm=marker
 
 int ls;
 int fd;
-
-DaemonConfig stDaemonConfig;
+int ataPorts;
+int fanRpm;
+int fanSpeed;
+tempState tsys;
+tempState *tdisk;
+DaemonConfig daemonCfg;
 
 /** @file mcm-daemon.c
 		@brief Implementation of a free system daemon replacement for
@@ -82,7 +83,7 @@ int gpio_get_value(unsigned int gpio, unsigned int *value)
 	char buf[100];
 	char ch;
 
-	//len = snprintf(buf, sizeof(buf), "%s/gpio%d/value", stDaemonConfig.gpioDir, gpio);
+	//len = snprintf(buf, sizeof(buf), "%s/gpio%d/value", daemonCfg.gpioDir, gpio);
 
 	fd = open(buf, O_RDONLY);
 	if (fd < 0) {
@@ -118,7 +119,7 @@ void cleanup(int shut,int s,int howmany)
 	retval = close (s);
 	if (retval)
 		syslog(LOG_ERR, "close");
-} 
+}
 
 static void sighandler(int sig)
 {
@@ -131,7 +132,7 @@ static void sighandler(int sig)
 		break;
 	case SIGTERM:
 		cleanup(0, ls, 1);
-		if(stDaemonConfig.syncOnShutdown)
+		if(daemonCfg.syncOnShutdown)
 			HandleCommand("systohc", 7, NULL, 0);
 		exit(EXIT_SUCCESS);
 		break;
@@ -259,7 +260,7 @@ int SendCommand(int fd, char *cmd, char *outArray)
 		ret = _SendCommand(fd, cmd, outArray);
 		nRetries++;
 		syslog(LOG_DEBUG, "Try number: %i\n", nRetries+1);
-	} while((ret != SUCCESS) && (nRetries < stDaemonConfig.nRetries));
+	} while((ret != SUCCESS) && (nRetries < daemonCfg.nRetries));
 
 	return ret;
 }
@@ -364,22 +365,16 @@ static char* searchDisk(char *base, char *pref)
 	char next[PATH_MAX];
 	char *tmp;
 
-	//int ports;
-	//ports = numAtaPorts();
-	//printf("found %d ata ports\n", ports);
-
 	tmp = NULL;
 	errno = 0;
 	dir = opendir(base);
 	if ( errno ) {
-		printf("error(%d) opening directory: %s\n",errno, base);
+		syslog(LOG_ERR, "error(%d) opening directory: %s\n",errno, base);
 		return NULL;
 	}
-	//printf("	searching: %s for %s\n", base, pref);
 	while ( (entry = readdir(dir)) != 0 ) {
 		if ( strcmp("..",entry->d_name) == 0 || strcmp(".",entry->d_name) == 0 )
 			continue;
-		//printf("	%s\n",entry->d_name);
 		if ( strcmp(pref, "host") == 0 ) {
 			if ( strncmp(pref,entry->d_name, strlen(pref)) == 0 ) {
 				snprintf(next, PATH_MAX, "%s/%s", base, entry->d_name);
@@ -407,7 +402,6 @@ static char* searchDisk(char *base, char *pref)
 		} else if ( strcmp(pref, "sd") == 0 ) {
 			if ( strncmp("sd", entry->d_name, 2) == 0 ) {
 				asprintf(&tmp, "%s/%s", "/dev", entry->d_name);
-				//printf("	%s\n", tmp);
 				break;
 			} else
 				continue;
@@ -425,9 +419,9 @@ static int numAtaPorts(void) {
 
 	num = 0;
 	errno = 0;
-	dir = opendir(PORTS);
+	dir = opendir(daemonCfg.ataPorts);
 	if ( errno )
-		printf("error %d enumerating ata ports\n",errno);
+		syslog(LOG_ERR, "error %d enumerating ata ports\n",errno);
 	else {
 		while ( (entry = readdir(dir)) != 0 ) {
 			if ( strncmp("ata",entry->d_name, 3) == 0 )
@@ -435,6 +429,7 @@ static int numAtaPorts(void) {
 		}
 		closedir(dir);
 	}
+	syslog(LOG_DEBUG, "found %d ata ports\n",num);
 	return num;
 }
 
@@ -445,21 +440,21 @@ static char *getDisk(int disk) {
 	char *path, *tmp;
 
 	tmp = NULL;
-	if ( disk > numAtaPorts() ) {
+	if ( disk > ataPorts ) {
 		//printf("disk %d > number of ports\n", disk);
 		return NULL;
 	}
 	errno = 0;
-	dir = opendir(PORTS);
+	dir = opendir(daemonCfg.ataPorts);
 	if ( errno )
-		printf("error %d enumerating ata ports\n",errno);
+		syslog(LOG_ERR, "error %d enumerating ata ports\n",errno);
 	else {
 		i = 0;
 		while ( (entry = readdir(dir)) != 0 ) {
 			if ( strncmp("ata",entry->d_name, 3) == 0 ) {
 				i++;
 				if ( i == disk ) {
-					asprintf(&path, "%s/%s/device",PORTS, entry->d_name);
+					asprintf(&path, "%s/%s/device",daemonCfg.ataPorts, entry->d_name);
 					tmp = searchDisk(path, "host");
 					if (path)
 						free(path);
@@ -472,9 +467,10 @@ static char *getDisk(int disk) {
 
 static int parseTemp(char *buf) {
 	char *endptr = NULL;
-	int temp, x;
+	int temp = 0;
+	int x;
 	char *tok;
-	
+
 	x = 1;
 	tok = strtok(buf, "\t\r\n ");
 	while ( x < 10 && tok != NULL  ) {
@@ -484,19 +480,20 @@ static int parseTemp(char *buf) {
 	errno = 0;
 	if (tok != NULL)
 		temp = (int) strtol(tok, &endptr, 0);
-	
+
 	if ( errno == 0 && tok != endptr )
 		return temp;
 
 	return -1;
 }
 
-static int hdtemp(int disk) {
+static int readHddTemp(int disk) {
 	int fd[2];
 	pid_t pid;
 	char buf[2048], *dev;
 	int tmp, temp;
 
+	syslog(LOG_DEBUG, "query disk %d temperature\n", disk);
 	dev = getDisk(disk);
 	if ( dev == NULL )
 		return 0;
@@ -513,23 +510,22 @@ static int hdtemp(int disk) {
 		close(fd[0]);
 		execlp("smartctl", "smartctl", "-A", dev, NULL);
 	}
-	free(dev);
 	dup2(fd[0],0);
 	close(fd[1]);
 	tmp = 0;
 	temp = 0;
 	while ( fgets(buf, 1024, stdin ) ) {
 		if ( strncmp("190", buf, 3) == 0 ) {
-			//printf("%s",buf);
 			tmp = parseTemp(buf);
 		}
 		if ( strncmp("194", buf, 3) == 0 ) {
-			//printf("%s",buf);
 			tmp = parseTemp(buf);
 		}
 		if ( tmp > temp)
 			temp = tmp;
 	}
+	//close(fd[0]);
+	free(dev);
 
 	return temp;
 }
@@ -548,7 +544,7 @@ static int readFan()
 		syslog(LOG_DEBUG, "Read fan rpm: %i\n", rpm);
 		return rpm;
 	}
-		
+
 	syslog(LOG_DEBUG, "Error getting fan speed\n");
 	return ERR_WRONG_ANSWER;
 }
@@ -569,7 +565,7 @@ static int readSysTemp()
 	return ERR_WRONG_ANSWER;
 }
 
-static int setFanSpeed(char val)
+static int setFanSpeed(int val)
 {
 	char buf[10];
 	int i;
@@ -577,7 +573,7 @@ static int setFanSpeed(char val)
 	for (i=0;i<=6;i++) {
 		buf[i] = FanSpeedSetCmd[i];
 	}
-	buf[3] = val;
+	buf[3] = (char)(val%256);
 	buf[7] = 0;
 	if(SendCommand(fd, buf, NULL) == SUCCESS)
 		return 0;
@@ -862,9 +858,9 @@ static int ReadRtc(char *retMessage, int bufSize)
 		strTime.tm_hour = buf[7];
 		strTime.tm_min = buf[6];
 		strTime.tm_sec = buf[5];
-		strTime.tm_isdst = -1;	 
+		strTime.tm_isdst = -1;
 		rtcTime = mktime(&strTime);
-		strcpy(timeStr, ctime(&rtcTime));				 
+		strcpy(timeStr, ctime(&rtcTime));
 		snprintf(retMessage, bufSize, "RTC: %s", timeStr);
 	}
 	else
@@ -966,10 +962,10 @@ static int hddtemp(char *retMessage, int bufSize) {
 	int i, c, pos;
 
 	pos = 0;
-	for (i=1;i<=numAtaPorts();i++) {
+	for (i=1;i<=ataPorts;i++) {
 		tmp = getDisk(i);
 		if ( tmp ) {
-			c = snprintf(buf, 256, "slot %d %s temp: %d\n",i,tmp,hdtemp(i));
+			c = snprintf(buf, 256, "slot %d %s temp: %d\n",i,tmp,readHddTemp(i));
 			free(tmp);
 			strncpy(&retMessage[pos], buf, bufSize - pos);
 			pos += c;
@@ -977,6 +973,84 @@ static int hddtemp(char *retMessage, int bufSize) {
 	}
 
 	return 0;
+}
+
+static void updateHddTemp(void) {
+	int i;
+
+	for (i=0;i<ataPorts;i++) {
+		tdisk[i].temp = readHddTemp(i + 1);
+		if ( tdisk[i].temp == 0 )
+			tdisk[i].tempOld = 0;
+		if ( tdisk[i].tempOld == 0 )
+			tdisk[i].tempOld = tdisk[i].temp;
+	}
+}
+
+static void updateSysTemp(void) {
+
+	tsys.temp = readSysTemp();
+	if ( tsys.tempOld == 0 )
+		tsys.tempOld = tsys.temp;
+	if ( tsys.temp < 0 ) {
+		tsys.temp = 0;
+		tsys.tempOld = 0;
+	}
+}
+
+static int checkTemps(void) {
+	int temp = 0;
+	int disks = 0;
+	int i;
+
+
+	for (i=0;i<ataPorts;i++) {
+		if ( tdisk[i].temp > 0 ) {
+			disks++;
+			if (tdisk[i].temp < daemonCfg.tempDiskLow)
+				temp--;
+		}
+	}
+	if ( tsys.temp < daemonCfg.tempSysLow )
+		temp--;
+
+	if ( temp < (0 - disks) )
+		temp = -2;
+	else
+		temp = 0;
+
+	if ( temp == 0 ) {
+		for (i=0;i<ataPorts;i++) {
+			if (tdisk[i].tempOld < tdisk[i].temp && tdisk[i].temp > 0)
+			temp++;
+		}
+
+		if ( tsys.tempOld < tsys.temp )
+			temp++;
+
+		if ( temp > 0 )
+			temp = 1;
+	}
+
+	if ( temp == 0 ) {
+		for (i=0;i<ataPorts;i++) {
+			if (tdisk[i].tempOld > tdisk[i].temp && tdisk[i].temp > 0)
+				temp--;
+		}
+		if ( tsys.tempOld > tsys.temp )
+			temp--;
+
+		if ( temp < 0 )
+			temp = -1;
+	}
+
+
+	for (i=0;i<ataPorts;i++) {
+		tdisk[i].tempOld = tdisk[i].temp;
+	}
+	tsys.tempOld = tsys.temp;
+
+	return temp;
 }
 
 static int help(char *retMessage, int bufSize);
@@ -1047,8 +1121,8 @@ int HandleCommand(char *message, int messageLen, char *retMessage, int bufSize) 
 	if ( errno == 0 && message != endptr )
 	{
 		if ( num == 0 || (num >= 80 && num <= 255) ) {
-			x = setFanSpeed((char)num);
-			if ( x == 1 ) 
+			x = setFanSpeed((int)num);
+			if ( x == 1 )
 				strncpy(retMessage, "ERR set fan speed failed (0, 80 - 255)\n", bufSize);
 			else
 				strncpy(retMessage, "OK\n", bufSize);
@@ -1072,15 +1146,19 @@ int main(int argc, char *argv[])
 	//int powerBtn;
 	//int pressed;
 	int opt;
-	int sleepCount;
+	//int sleepCount;
+	time_t sleepFan;
+	time_t sleepHdd;
+	time_t now;
+	int adjust;
 	int pollTimeMs;
 	//int readRtcOnStartup = 0;
 	//char buf[100];
 	char *configPath = "/etc/mcm-daemon.ini";
-	char msgBuf[15];
-	int sysTemp;
-	int fanSpeed;
-	int fanRpm;
+	//char msgBuf[15];
+	//int sysTemp;
+	//int fanSpeed;
+	//int fanRpm;
 	struct sockaddr_in s_name;
 	struct pollfd *fds = NULL;
 	nfds_t nfds;
@@ -1093,13 +1171,13 @@ int main(int argc, char *argv[])
 	//pressed = 0;
 	nfds = 1;
 	opt = 1;
-	sleepCount = 0;
+	//sleepCount = 0;
 	pollTimeMs = 10; // Sleep 10ms for every loop
 	fanSpeed = -1;
-	fanRpm = -1;
-	
-	stDaemonConfig.goDaemon = 1;
-	stDaemonConfig.debug = 0;
+	//fanRpm = -1;
+
+	daemonCfg.goDaemon = 1;
+	daemonCfg.debug = 0;
 
 	// Parse command line arguments
 	while((i = getopt(argc, argv, "fc:d")) != -1)
@@ -1107,11 +1185,11 @@ int main(int argc, char *argv[])
 		switch(i)
 		{
 			case 'f':
-				stDaemonConfig.goDaemon = 0;
+				daemonCfg.goDaemon = 0;
 				break;
 			case 'd':
-				stDaemonConfig.debug = 1;
-				stDaemonConfig.goDaemon = 0;
+				daemonCfg.debug = 1;
+				daemonCfg.goDaemon = 0;
 				break;
 			case 'c':
 				configPath = optarg;
@@ -1132,43 +1210,49 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "			 -d					debug (implies -f)\n");
 				return EXIT_FAILURE;
 		}
-	
+
 	}
-	
+
 	// Register some signal handlers
 	signal(SIGTERM, sighandler);
 	signal(SIGINT, sighandler);
-	
-	// Load our configuration file or use default values 
+
+	// Load our configuration file or use default values
 	// if it doesn't exist!
 	iniFile = iniparser_load(configPath);
-	stDaemonConfig.portName			= iniparser_getstring(iniFile,	"Serial:Port", "/dev/ttyS1");
-	stDaemonConfig.syncOnStartup	= iniparser_getint(iniFile,		"Daemon:SyncTimeOnStartup", 0);
-	stDaemonConfig.fanPollTime		= iniparser_getint(iniFile,		"Fan:PollTime", 15);
-	stDaemonConfig.tempLow			= iniparser_getint(iniFile,		"Fan:TempLow", 45);
-	stDaemonConfig.tempHigh			= iniparser_getint(iniFile,		"Fan:TempHigh", 50);
-	stDaemonConfig.hysteresis		= iniparser_getint(iniFile,		"Fan:Hysteresis", 2);
-	stDaemonConfig.gpioPollTime		= iniparser_getint(iniFile,		"GPIO:PollTime", 1);
-	stDaemonConfig.gpioDir			= iniparser_getstring(iniFile,	"GPIO:SysfsGpioDir", "/sys/class/gpio");
-	stDaemonConfig.serverAddr		= iniparser_getstring(iniFile,	"Daemon:ServerAddr", "0.0.0.0");
-	stDaemonConfig.serverPort		= iniparser_getint(iniFile,		"Daemon:ServerPort", 57367);
-	stDaemonConfig.pollGpio			= iniparser_getint(iniFile,		"Daemon:PollGPIO", 1);
-	stDaemonConfig.syncOnShutdown	= iniparser_getint(iniFile,		"Daemon:SyncTimeOnShutdown", 0);
-	stDaemonConfig.nRetries			= iniparser_getint(iniFile,		"Serial:NumberOfRetries", 5);
+	daemonCfg.portName			= iniparser_getstring(iniFile,	"Serial:Port", "/dev/ttyS1");
+	daemonCfg.syncOnStartup		= iniparser_getint(iniFile,		"Daemon:SyncTimeOnStartup", 0);
+	daemonCfg.fanPollTime		= iniparser_getint(iniFile,		"Fan:PollTime", 60);
+	daemonCfg.tempSysLow		= iniparser_getint(iniFile,		"Fan:TempLow", 45);
+	daemonCfg.tempSysHigh		= iniparser_getint(iniFile,		"Fan:TempHigh", 50);
+	daemonCfg.speedMin			= iniparser_getint(iniFile,		"Fan:SpeedMin", 80);
+	daemonCfg.speedMax			= iniparser_getint(iniFile,		"Fan:SpeedMax", 255);
+	daemonCfg.hysteresis		= iniparser_getint(iniFile,		"Fan:Hysteresis", 2);
+	daemonCfg.gpioPollTime		= iniparser_getint(iniFile,		"GPIO:PollTime", 1);
+	daemonCfg.gpioDir			= iniparser_getstring(iniFile,	"GPIO:SysfsGpioDir", "/sys/class/gpio");
+	daemonCfg.serverAddr		= iniparser_getstring(iniFile,	"Daemon:ServerAddr", "0.0.0.0");
+	daemonCfg.serverPort		= iniparser_getint(iniFile,		"Daemon:ServerPort", 57367);
+	daemonCfg.pollGpio			= iniparser_getint(iniFile,		"Daemon:PollGPIO", 1);
+	daemonCfg.syncOnShutdown	= iniparser_getint(iniFile,		"Daemon:SyncTimeOnShutdown", 0);
+	daemonCfg.nRetries			= iniparser_getint(iniFile,		"Serial:NumberOfRetries", 5);
+	daemonCfg.ataPorts			= iniparser_getstring(iniFile,	"Disks:SysfsPorts", "/sys/class/ata_port");
+	daemonCfg.hddPollTime		= iniparser_getint(iniFile,		"Disks:PollTime", 120);
+	daemonCfg.tempDiskLow		= iniparser_getint(iniFile,		"Disks:TempLow", 38);
+	daemonCfg.tempDiskHigh		= iniparser_getint(iniFile,		"Disks:TempHigh", 45);
 
 
 	// Setup syslog
-	if(stDaemonConfig.debug)
+	if(daemonCfg.debug)
 		setlogmask(LOG_UPTO(LOG_DEBUG));
 	else
 		setlogmask(LOG_UPTO(LOG_INFO));
-	
-	if(stDaemonConfig.goDaemon)
+
+	if(daemonCfg.goDaemon)
 		openlog("mcm-daemon", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
 	else
 		openlog("mcm-daemon", LOG_CONS | LOG_PID | LOG_NDELAY | LOG_PERROR, LOG_LOCAL1);
-		
-	if(stDaemonConfig.goDaemon)
+
+	if(daemonCfg.goDaemon)
 	{
 		pid = fork();
 		if(pid < 0)
@@ -1176,7 +1260,7 @@ int main(int argc, char *argv[])
 			syslog(LOG_ERR, "Forking failed.\n");
 			return EXIT_FAILURE;
 		}
-		
+
 		if(pid > 0)
 		{
 			return EXIT_SUCCESS;
@@ -1189,7 +1273,7 @@ int main(int argc, char *argv[])
 			syslog(LOG_ERR, "Could not create process group\n");
 			return EXIT_FAILURE;
 		}
-		
+
 		if((chdir("/")) < 0)
 		{
 			 syslog(LOG_ERR, "Could not chdir(\"/\")\n");
@@ -1198,7 +1282,7 @@ int main(int argc, char *argv[])
 		close(STDIN_FILENO);
 		close(STDOUT_FILENO);
 		close(STDERR_FILENO);
-	
+
 	}
 
 	// Open our socket server
@@ -1214,8 +1298,8 @@ int main(int argc, char *argv[])
 
 
 	s_name.sin_family = AF_INET;
-	s_name.sin_port = htons(stDaemonConfig.serverPort);
-	s_name.sin_addr.s_addr = inet_addr(stDaemonConfig.serverAddr);
+	s_name.sin_port = htons(daemonCfg.serverPort);
+	s_name.sin_addr.s_addr = inet_addr(daemonCfg.serverAddr);
 
 	syslog(LOG_DEBUG, "Bind name to ls. \n");
 	retval = bind (ls,(struct sockaddr *)&s_name, sizeof s_name);
@@ -1234,16 +1318,16 @@ int main(int argc, char *argv[])
 		cleanup(0, ls,1);
 		exit(EXIT_FAILURE);
 	}
-	syslog(LOG_INFO, "Server startup success on port %i\n", stDaemonConfig.serverPort);
+	syslog(LOG_INFO, "Server startup success on port %i\n", daemonCfg.serverPort);
 
 	fds = (struct pollfd *)calloc(1,nfds*sizeof(struct pollfd));
 	fds->fd = ls;
 	fds->events = POLLIN | POLLPRI;
 
-	fd = open (stDaemonConfig.portName, O_RDWR | O_NOCTTY | O_SYNC);
+	fd = open (daemonCfg.portName, O_RDWR | O_NOCTTY | O_SYNC);
 	if (fd < 0)
 	{
-		syslog(LOG_ERR, "error %d opening %s: %s", errno, stDaemonConfig.portName, strerror (errno));
+		syslog(LOG_ERR, "error %d opening %s: %s", errno, daemonCfg.portName, strerror (errno));
 		return 0;
 	}
 
@@ -1259,13 +1343,27 @@ int main(int argc, char *argv[])
 		syslog(LOG_ERR, "Error sending DeviceReady command, exit!\n");
 		return EXIT_FAILURE;
 	}
-	
-	if(stDaemonConfig.syncOnStartup)
+
+	if(daemonCfg.syncOnStartup)
 	{
 		syslog(LOG_INFO, "Setting system clock from RTC...\n");
 		if(HandleCommand("hctosys", 7, NULL, 0) != 0)
 			syslog(LOG_ERR, "Error setting system time from RTC!\n");
 	}
+
+	ataPorts = numAtaPorts();
+	tdisk = malloc(ataPorts * sizeof(*tdisk));
+	for(i=0;i<ataPorts;i++) {
+		tdisk[i].temp    = 0;
+		tdisk[i].tempOld = 0;
+	}
+	tsys.temp    = 0;
+	tsys.tempOld = 0;
+
+	fanSpeed = (daemonCfg.speedMax + daemonCfg.speedMin) / 2;
+	setFanSpeed(fanSpeed);
+	sleepFan = 0;
+	sleepHdd = 0;
 
 	// Go to endless loop and do the following:
 	// Get the thermal status
@@ -1273,177 +1371,161 @@ int main(int argc, char *argv[])
 	// Wake every 1s to poll the power button GPIO
 	// Wake every few ms to poll the sockets for connections
 	// Sleep
-	
+
 	while(1)
 	{
-		sleepCount = 0;
+		now = time(NULL);
 
-		fanRpm = readFan();
-		sysTemp = readSysTemp();
-
-		if(sysTemp > 0)
-		{
-			if(sysTemp < (stDaemonConfig.tempLow - stDaemonConfig.hysteresis))
-			{
-				if(fanSpeed != 0)
-				{
-					syslog(LOG_DEBUG, "Set Fan Stop\n");
-					SendCommand(fd, FanStopCmd, NULL);
-					fanSpeed = 0;
-				}
-			}
-			else if(sysTemp < stDaemonConfig.tempLow)
-			{
-				if(fanSpeed > 1)
-				{
-					syslog(LOG_DEBUG, "Set Fan Half\n");
-					SendCommand(fd, FanHalfCmd, NULL);
-					fanSpeed = 1;
-				}
-			}
-			else if(sysTemp < (stDaemonConfig.tempHigh - stDaemonConfig.hysteresis))
-			{
-				if(fanSpeed != 1)
-				{
-					syslog(LOG_DEBUG, "Set Fan Half\n");
-					SendCommand(fd, FanHalfCmd, NULL);
-					fanSpeed = 1;
-				}
-			}
-			else if(sysTemp < stDaemonConfig.tempHigh)
-			{
-				if(fanSpeed < 1)
-				{
-					syslog(LOG_DEBUG, "Set Fan Half\n");
-					SendCommand(fd, FanHalfCmd, NULL);
-					fanSpeed = 1;
-				}
-			}
-			else
-			{
-				if(fanSpeed != 2)
-				{
-					syslog(LOG_DEBUG, "Set Fan Full\n");
-					SendCommand(fd, FanFullCmd, NULL);
-					fanSpeed = 2;
-				}
-			}
+		if ((sleepFan + daemonCfg.fanPollTime) <= now) {
+			sleepFan = now;
+			updateSysTemp();
+			fanRpm = readFan();
+			syslog(LOG_DEBUG, "system temp: %d fan rpm: %d\n",tsys.temp, fanRpm);
 		}
 
-		while((sleepCount * pollTimeMs) < (stDaemonConfig.fanPollTime * 1000))
-		{
-			sleepCount++;
-
-			ret = poll(fds,nfds,pollTimeMs); // Time out after pollTimeMs
-			if (ret == -1){
-				syslog(LOG_ERR, "poll");
-				exit(EXIT_FAILURE);
+		if ((sleepHdd + daemonCfg.hddPollTime) <= now) {
+			sleepHdd = now;
+			updateHddTemp();
+			for(i=0;i<ataPorts;i++) {
+				if (tdisk[i].temp > 0)
+					syslog(LOG_DEBUG, "hdd%d tempOld: %d, temp: %d\n",
+						i, tdisk[i].tempOld, tdisk[i].temp);
+			}
+			syslog(LOG_DEBUG, "system tempOld: %d, temp: %d, fanSpeed: %d, fanRpm: %d\n",
+				tsys.tempOld, tsys.temp, fanSpeed, fanRpm);
+			adjust = checkTemps();
+			if ( adjust == -2 )
+				fanSpeed = 0;
+			if ( adjust == -1 )
+				fanSpeed *= 0.9;
+			if ( adjust == 1 ) {
+				if ( fanSpeed == 0 )
+					fanSpeed = daemonCfg.speedMin;
+				else
+					fanSpeed *= 1.1;
 			}
 
-			for (i=0;(i<nfds) && (ret);i++)
-			{
-				if (!(fds+i)->revents)
-					continue;
-				ret--;
-				if (((fds+i)->fd == ls) && ((fds+i)->revents & POLLIN))
-				{
-					/*
-					 * Accept connection from socket ls:
-					 * accepted connection will be on socket (fds+nfds)->fd.
-					 */
-					syslog(LOG_DEBUG, "POLLIN on ls. Accepting connection\n");
-					namelength = sizeof (s_name);
-					fds = (struct pollfd *)realloc(fds,(nfds+1)*sizeof(struct pollfd));
-					(fds+nfds)->fd	= accept (ls, (struct sockaddr *)&s_name, &namelength);
-					if ((fds+nfds)->fd == -1)
-					{
-						syslog(LOG_ERR, "accept");
-						cleanup(0, (fds+nfds)->fd, 1);
-						fds = (struct pollfd *)realloc(fds,nfds*sizeof(struct pollfd));
-						continue;
-					}
-					(fds+nfds)->events = POLLIN | POLLRDNORM;
-					nfds++;
-					continue;
-				}
-				if ((fds+i)->revents & POLLNVAL)
-				{
-					syslog(LOG_DEBUG, "POLLNVAL on socket. Freeing resource\n");
-					nfds--;
-					memcpy(fds+i,fds+i+1,nfds-i);
-					fds = (struct pollfd *)realloc(fds,nfds*sizeof(struct pollfd));
-					continue;
-				}
-				if ((fds+i)->revents & POLLHUP)
-				{
-					syslog(LOG_DEBUG, "POLLHUP => peer reset connection ...\n");
-					cleanup(0,(fds+i)->fd,2);
-					nfds--;
-					memcpy(fds+i,fds+i+1,nfds-i);
-					fds = (struct pollfd *)realloc(fds,nfds*sizeof(struct pollfd));
-					continue;
-				}
-				if ((fds+i)->revents & POLLERR){
-					syslog(LOG_DEBUG, "POLLERR => peer reset connection ...\n");
-					cleanup(0,(fds+i)->fd,2);
-					nfds--;
-					memcpy(fds+i,fds+i+1,nfds-i);
-					fds = (struct pollfd *)realloc(fds,nfds*sizeof(struct pollfd));
-					continue;
-				}
-				if ((fds+i)->revents & POLLRDNORM)
-				{
-					retval = recv((fds+i)->fd, message, sizeof(message)-1, 0); // Don't forget the string terminator here!
-					syslog(LOG_DEBUG, "-> (recv) retval = %d.\n",retval);	/* ped */
-					msgIdx = retval;
-					if (retval <=0)
-					{
-						if (retval == 0)
-						{
-							syslog(LOG_DEBUG, "recv()==0 => peer disconnected...\n");
-							cleanup(1,(fds+i)->fd,2);
-						}
-						else
-						{
-							syslog(LOG_ERR, "receive");
-							cleanup( 0, (fds+i)->fd,1);
-						}
-						nfds--;
-						memcpy(fds+i,fds+i+1,nfds-i);
-						fds = (struct pollfd *)realloc(fds,nfds*sizeof(struct pollfd));
-						continue;
-					}
-					while((retval > 0) && (message[msgIdx-2] != '\r') && ((msgIdx+1) < sizeof(message)))
-					{
-						retval = recv((fds+i)->fd, &message[msgIdx-2], sizeof(message) - retval - 1, 0);
-						syslog(LOG_DEBUG, " \t -> (recv) retval = %d.\n", retval);
-						if(retval > 0)
-							msgIdx += retval - 2;
-					}
-					if(msgIdx > 1)
-						if(message[msgIdx-1] == '\n')
-						{
-							if(message[msgIdx-2] == '\r')
-								message[msgIdx-2] = '\0';
-							else
-								message[msgIdx-1] = '\0';
-						}
+			if ( fanSpeed > daemonCfg.speedMax )
+				fanSpeed = daemonCfg.speedMax;
 
-					syslog(LOG_DEBUG, "Normal message :	%.*s\n",retval,message);
-					msgIdx = HandleCommand(message, msgIdx, response, sizeof(response));
-					retval = send((fds+i)->fd, response, strlen(response), 0);
-					if((retval < 0) || (msgIdx > 1))
-					{
-						syslog(LOG_DEBUG, "send()==0 => peer disconnected...\n");
-						cleanup(1,(fds+1)->fd, 2);
-					}
-					if(msgIdx == 3)
-					{
-						syslog(LOG_INFO, "Shutting down mcm-daemon...\n");
-						return EXIT_SUCCESS;
-					}
+			if ( fanSpeed > 0 && fanSpeed < daemonCfg.speedMin )
+				fanSpeed = daemonCfg.speedMin;
+
+			setFanSpeed(fanSpeed);
+
+			if ( adjust != 0 )
+				syslog(LOG_DEBUG, "adjusting fan speed: %d, adjust: %d\n", fanSpeed, adjust);
+		}
+
+		ret = poll(fds,nfds,pollTimeMs); // Time out after pollTimeMs
+		if (ret == -1){
+			syslog(LOG_ERR, "poll");
+			exit(EXIT_FAILURE);
+		}
+
+		for (i=0;(i<nfds) && (ret);i++)
+		{
+			if (!(fds+i)->revents)
+				continue;
+			ret--;
+			if (((fds+i)->fd == ls) && ((fds+i)->revents & POLLIN))
+			{
+				/*
+				 * Accept connection from socket ls:
+				 * accepted connection will be on socket (fds+nfds)->fd.
+				 */
+				syslog(LOG_DEBUG, "POLLIN on ls. Accepting connection\n");
+				namelength = sizeof (s_name);
+				fds = (struct pollfd *)realloc(fds,(nfds+1)*sizeof(struct pollfd));
+				(fds+nfds)->fd	= accept (ls, (struct sockaddr *)&s_name, &namelength);
+				if ((fds+nfds)->fd == -1)
+				{
+					syslog(LOG_ERR, "accept");
+					cleanup(0, (fds+nfds)->fd, 1);
+					fds = (struct pollfd *)realloc(fds,nfds*sizeof(struct pollfd));
 					continue;
 				}
+				(fds+nfds)->events = POLLIN | POLLRDNORM;
+				nfds++;
+				continue;
+			}
+			if ((fds+i)->revents & POLLNVAL)
+			{
+				syslog(LOG_DEBUG, "POLLNVAL on socket. Freeing resource\n");
+				nfds--;
+				memcpy(fds+i,fds+i+1,nfds-i);
+				fds = (struct pollfd *)realloc(fds,nfds*sizeof(struct pollfd));
+				continue;
+			}
+			if ((fds+i)->revents & POLLHUP)
+			{
+				syslog(LOG_DEBUG, "POLLHUP => peer reset connection ...\n");
+				cleanup(0,(fds+i)->fd,2);
+				nfds--;
+				memcpy(fds+i,fds+i+1,nfds-i);
+				fds = (struct pollfd *)realloc(fds,nfds*sizeof(struct pollfd));
+				continue;
+			}
+			if ((fds+i)->revents & POLLERR){
+				syslog(LOG_DEBUG, "POLLERR => peer reset connection ...\n");
+				cleanup(0,(fds+i)->fd,2);
+				nfds--;
+				memcpy(fds+i,fds+i+1,nfds-i);
+				fds = (struct pollfd *)realloc(fds,nfds*sizeof(struct pollfd));
+				continue;
+			}
+			if ((fds+i)->revents & POLLRDNORM)
+			{
+				retval = recv((fds+i)->fd, message, sizeof(message)-1, 0); // Don't forget the string terminator here!
+				syslog(LOG_DEBUG, "-> (recv) retval = %d.\n",retval);	/* ped */
+				msgIdx = retval;
+				if (retval <=0)
+				{
+					if (retval == 0)
+					{
+						syslog(LOG_DEBUG, "recv()==0 => peer disconnected...\n");
+						cleanup(1,(fds+i)->fd,2);
+					}
+					else
+					{
+						syslog(LOG_ERR, "receive");
+						cleanup( 0, (fds+i)->fd,1);
+					}
+					nfds--;
+					memcpy(fds+i,fds+i+1,nfds-i);
+					fds = (struct pollfd *)realloc(fds,nfds*sizeof(struct pollfd));
+					continue;
+				}
+				while((retval > 0) && (message[msgIdx-2] != '\r') && ((msgIdx+1) < sizeof(message)))
+				{
+					retval = recv((fds+i)->fd, &message[msgIdx-2], sizeof(message) - retval - 1, 0);
+					syslog(LOG_DEBUG, " \t -> (recv) retval = %d.\n", retval);
+					if(retval > 0)
+						msgIdx += retval - 2;
+				}
+				if(msgIdx > 1)
+					if(message[msgIdx-1] == '\n')
+					{
+						if(message[msgIdx-2] == '\r')
+							message[msgIdx-2] = '\0';
+						else
+							message[msgIdx-1] = '\0';
+					}
+
+				syslog(LOG_DEBUG, "Normal message :	%.*s\n",retval,message);
+				msgIdx = HandleCommand(message, msgIdx, response, sizeof(response));
+				retval = send((fds+i)->fd, response, strlen(response), 0);
+				if((retval < 0) || (msgIdx > 1))
+				{
+					syslog(LOG_DEBUG, "send()==0 => peer disconnected...\n");
+					cleanup(1,(fds+1)->fd, 2);
+				}
+				if(msgIdx == 3)
+				{
+					syslog(LOG_INFO, "Shutting down mcm-daemon...\n");
+					return EXIT_SUCCESS;
+				}
+				continue;
 			}
 		}
 	}

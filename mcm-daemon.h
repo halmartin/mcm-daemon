@@ -10,6 +10,7 @@ typedef struct
 	int syncOnStartup;
 	int syncOnShutdown;
 	int fanPollTime;
+	int hddPollTime;
 	int pollGpio;
 	int gpioPollTime;
 	int serverPort;
@@ -18,17 +19,29 @@ typedef struct
 	const char *gpioDir;
 	const char *portName;
 	const char *serverAddr;
-	int tempLow;
-	int tempHigh;
+	const char *ataPorts;
+	int tempSysLow;
+	int tempSysHigh;
+	int tempDiskLow;
+	int tempDiskHigh;
 	int hysteresis;
+	int speedMin;
+	int speedMax;
 	int nRetries;
 } DaemonConfig;
 
-typedef struct DaemonCommand {
+typedef struct {
 	const void *func;
 	const char *name;
 	const char *desc;
 } DaemonCommand;
+
+typedef struct tempState {
+	int tempOld;
+	int temp;
+} tempState;
+
+//typedef struct _tempState *tdisk;
 
 /** <i>Function</i> that reads a GPIO value from sysfs interface.
 	@param gpio The GPIO number to read
