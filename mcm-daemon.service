@@ -3,7 +3,7 @@ Description=MCM System Daemon
 After=syslog.target
 
 [Service]
-ExecStart=/usr/bin/mcm-daemon
+ExecStart=/sbin/mcm-daemon
 Type=forking
 
 [Install]
