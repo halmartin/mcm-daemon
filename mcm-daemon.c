@@ -1033,6 +1033,17 @@ static int checkTemps(void) {
 
 	if ( temp == 0 ) {
 		for (i=0;i<ataPorts;i++) {
+			if ( tdisk[i].temp >= daemonCfg.tempDiskHigh )
+				temp++;
+		}
+		if (  tsys.temp >= daemonCfg.tempSysHigh )
+			temp++;
+		if ( temp > 0 )
+			temp = 2;
+	}
+
+	if ( temp == 0 ) {
+		for (i=0;i<ataPorts;i++) {
 			if (tdisk[i].tempOld < tdisk[i].temp && tdisk[i].temp > daemonCfg.tempDiskLow)
 			temp++;
 		}
@@ -1410,6 +1421,8 @@ int main(int argc, char *argv[])
 				else
 					fanSpeed *= 1.1;
 			}
+			if ( adjust == 2 )
+				fanSpeed = daemonCfg.speedMax;
 
 			if ( fanSpeed > daemonCfg.speedMax )
 				fanSpeed = daemonCfg.speedMax;
