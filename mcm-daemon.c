@@ -612,7 +612,7 @@ static int GetFanRpm(char *retMessage, int bufSize)
 		return 1;
 	}
 
-	snprintf(retMessage, bufSize, "%d", tmp);
+	snprintf(retMessage, bufSize, "%d %d", fanSpeed, tmp);
 	len = strlen(retMessage);
 	if(bufSize > 1)
 	{
@@ -1190,7 +1190,7 @@ int main(int argc, char *argv[])
 
 	nfds = 1;
 	opt = 1;
-	pollTimeMs = 10; // Sleep 10ms for every loop
+	pollTimeMs = 100; // Sleep 10ms for every loop
 	fanSpeed = -1;
 	daemonCfg.goDaemon = 1;
 	daemonCfg.debug = 0;
