@@ -645,101 +645,6 @@ static int quit(char *retMessage, int bufSize)
 	return 2;
 }
 
-static int EnPwrRec(char *retMessage, int bufSize)
-{
-	if(SendCommand(fd, APREnableCmd, NULL) == SUCCESS)
-		strncpy(retMessage, "OK\n", bufSize);
-	else
-	{
-		strncpy(retMessage, "ERR\n", bufSize);
-		return 1;
-	}
-	return 0;
-}
-
-static int DisPwrRec(char *retMessage, int bufSize)
-{
-	if(SendCommand(fd, APRDisableCmd, NULL) == SUCCESS)
-		strncpy(retMessage, "OK\n", bufSize);
-	else
-	{
-		strncpy(retMessage, "ERR\n", bufSize);
-		return 1;
-	}
-	return 0;
-}
-
-static int GetPwrRec(char *retMessage, int bufSize)
-{
-	int len;
-	char buf[15];
-
-
-	if(SendCommand(fd, APRStatusCmd, buf) > ERR_WRONG_ANSWER)
-	{
-		snprintf(retMessage, bufSize, "%d", buf[5]);
-		len = strlen(retMessage);
-		if(bufSize > 1)
-		{
-			retMessage[len] = '\n';
-			retMessage[len+1] = '\0';
-		}
-	}
-	else
-	{
-		strncpy(retMessage, "ERR\n", bufSize);
-		return 1;
-	}
-	return 0;
-}
-
-static int EnWOL(char *retMessage, int bufSize)
-{
-	if(SendCommand(fd, WOLStatusEnableCmd, NULL) == SUCCESS)
-		strncpy(retMessage, "OK\n", bufSize);
-	else
-	{
-		strncpy(retMessage, "ERR\n", bufSize);
-		return 1;
-	}
-	return 0;
-}
-
-static int DisWOL(char *retMessage, int bufSize)
-{
-	if(SendCommand(fd, WOLStatusDisableCmd, NULL) == SUCCESS)
-		strncpy(retMessage, "OK\n", bufSize);
-	else
-	{
-		strncpy(retMessage, "ERR\n", bufSize);
-		return 1;
-	}
-	return 0;
-}
-
-static int GetWOL(char *retMessage, int bufSize)
-{
-	int len;
-	char buf[15];
-
-	if(SendCommand(fd, WOLStatusGetCmd, buf) > ERR_WRONG_ANSWER)
-	{
-		snprintf(retMessage, bufSize, "%d", buf[5]);
-		len = strlen(retMessage);
-		if(bufSize > 1)
-		{
-			retMessage[len] = '\n';
-			retMessage[len+1] = '\0';
-		}
-	}
-	else
-	{
-		strncpy(retMessage, "ERR\n", bufSize);
-		return 1;
-	}
-	return 0;
-}
-
 static int PwrLedOff(char *retMessage, int bufSize)
 {
 	if(SendCommand(fd, PLedOffCmd, NULL) == SUCCESS)
@@ -840,6 +745,102 @@ static int Shutdown(char *retMessage, int bufSize)
 {
 	strncpy(retMessage, "OK\n", bufSize);
 	return 3;
+}
+
+#if 0 /* disabled commands that don't work on the WDMC Gen2 */
+static int EnPwrRec(char *retMessage, int bufSize)
+{
+	if(SendCommand(fd, APREnableCmd, NULL) == SUCCESS)
+		strncpy(retMessage, "OK\n", bufSize);
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int DisPwrRec(char *retMessage, int bufSize)
+{
+	if(SendCommand(fd, APRDisableCmd, NULL) == SUCCESS)
+		strncpy(retMessage, "OK\n", bufSize);
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int GetPwrRec(char *retMessage, int bufSize)
+{
+	int len;
+	char buf[15];
+
+
+	if(SendCommand(fd, APRStatusCmd, buf) > ERR_WRONG_ANSWER)
+	{
+		snprintf(retMessage, bufSize, "%d", buf[5]);
+		len = strlen(retMessage);
+		if(bufSize > 1)
+		{
+			retMessage[len] = '\n';
+			retMessage[len+1] = '\0';
+		}
+	}
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int EnWOL(char *retMessage, int bufSize)
+{
+	if(SendCommand(fd, WOLStatusEnableCmd, NULL) == SUCCESS)
+		strncpy(retMessage, "OK\n", bufSize);
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int DisWOL(char *retMessage, int bufSize)
+{
+	if(SendCommand(fd, WOLStatusDisableCmd, NULL) == SUCCESS)
+		strncpy(retMessage, "OK\n", bufSize);
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
+}
+
+static int GetWOL(char *retMessage, int bufSize)
+{
+	int len;
+	char buf[15];
+
+	if(SendCommand(fd, WOLStatusGetCmd, buf) > ERR_WRONG_ANSWER)
+	{
+		snprintf(retMessage, bufSize, "%d", buf[5]);
+		len = strlen(retMessage);
+		if(bufSize > 1)
+		{
+			retMessage[len] = '\n';
+			retMessage[len+1] = '\0';
+		}
+	}
+	else
+	{
+		strncpy(retMessage, "ERR\n", bufSize);
+		return 1;
+	}
+	return 0;
 }
 
 static int ReadRtc(char *retMessage, int bufSize)
@@ -958,8 +959,9 @@ static int hctosys(char *retMessage, int bufSize)
 	}
 	return 0;
 }
+#endif
 
-static int hddtemp(char *retMessage, int bufSize) {
+static int GetHddTemp(char *retMessage, int bufSize) {
 
 	char *tmp;
 	char buf[256];
@@ -1062,7 +1064,8 @@ static int help(char *retMessage, int bufSize);
 DaemonCommand cmdTable[] = {
 		{ &DeviceReady, 	"DeviceReady",			"Tells the MCU, tht the device booted fully" },
 		{ &GetFanRpm,		"GetFanRpm",			"Reads the fan speed from the MCU" },
-		{ &GetSysTemp,		"GetSysTemperature",	"Reads the system temperatur from the MCU" },
+		{ &GetSysTemp,		"GetSysTemp",		"Reads the system temperatur from the MCU" },
+		{ &GetHddTemp,		"GetHddTemp",			"print harddisk temperatures" },
 		//{ &EnPwrRec,		"EnablePowerRecovery",	"Device boots after power failure" },
 		//{ &DisPwrRec,		"DisablePowerRecovery",	"Device stays off after power failure" },
 		//{ &GetPwrRec,		"GetPowerRecoveryState","Read status of power failure handling" },
@@ -1078,7 +1081,6 @@ DaemonCommand cmdTable[] = {
 		{ &PwrLedOrange,	"PwrLedOrange",			"switches the power led to orange" },
 		{ &PwrLedOrangeBlink,"PwrLedOrangeBlink",	"blinks the power led orange" },
 		{ &Shutdown,		"ShutdownDaemon",		"stops the mcm-daemon" },
-		{ &hddtemp,			"hddTemp",				"print harddisk temperatures" },
 		//{ &ReadRtc,		"ReadRtc",				"reads the realtime clock of the MCU" },
 		//{ &systohc,		"systohc",				"sets realtime clock on the MCU to system time" },
 		//{ &hctosys,		"hctosys",				"set system time from the MCU" },
