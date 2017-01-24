@@ -1027,7 +1027,7 @@ static int checkTemps(void) {
 		temp--;
 
 	if ( temp < (0 - disks) )
-		temp = -2;
+		temp = -3;
 	else
 		temp = 0;
 
@@ -1064,9 +1064,20 @@ static int checkTemps(void) {
 			temp--;
 
 		if ( temp < 0 )
-			temp = -1;
+			temp = -2;
 	}
 
+	if ( temp == 0 ) {
+		for (i=0;i<ataPorts;i++) {
+			if ( tdisk[i].temp < ((daemonCfg.tempDiskLow + daemonCfg.tempDiskHigh) / 2) )
+				temp--;
+		}
+		if ( tsys.temp < ((daemonCfg.tempSysLow + daemonCfg.tempSysHigh) / 2) )
+			temp--;
+
+		if ( temp < 0 )
+			temp = -1;
+	}
 
 	for (i=0;i<ataPorts;i++) {
 		tdisk[i].tempOld = tdisk[i].temp;
@@ -1409,11 +1420,11 @@ int main(int argc, char *argv[])
 			syslog(LOG_DEBUG, "system tempOld: %d, temp: %d, fanSpeed: %d, fanRpm: %d\n",
 				tsys.tempOld, tsys.temp, fanSpeed, fanRpm);
 			adjust = checkTemps();
-			if ( adjust == -2 )
+			if ( adjust == -3 )
 				fanSpeed = 0;
-			if ( adjust == -1 )
+			if ( adjust == -2 )
 				fanSpeed *= 0.9;
-			if ( adjust == 0 )
+			if ( adjust == -1 )
 				fanSpeed *= 0.95;
 			if ( adjust == 1 ) {
 				if ( fanSpeed == 0 )
