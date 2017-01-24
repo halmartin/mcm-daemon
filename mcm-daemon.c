@@ -1402,6 +1402,8 @@ int main(int argc, char *argv[])
 				fanSpeed = 0;
 			if ( adjust == -1 )
 				fanSpeed *= 0.9;
+			if ( adjust == 0 )
+				fanSpeed *= 0.95;
 			if ( adjust == 1 ) {
 				if ( fanSpeed == 0 )
 					fanSpeed = daemonCfg.speedMin * 1.2;
