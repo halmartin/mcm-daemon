@@ -428,8 +428,8 @@ static int numAtaPorts(void) {
 			if ( strncmp("ata",entry->d_name, 3) == 0 )
 				num++;
 		}
-		closedir(dir);
 	}
+	closedir(dir);
 	syslog(LOG_DEBUG, "found %d ata ports\n",num);
 	return num;
 }
@@ -463,6 +463,7 @@ static char *getDisk(int disk) {
 			}
 		}
 	}
+	closedir(dir);
 	return tmp;
 }
 
@@ -526,7 +527,7 @@ static int readHddTemp(int disk) {
 		if ( tmp > temp)
 			temp = tmp;
 	}
-	//close(fd[0]);
+	close(fd[0]);
 	wait(&status);
 	free(dev);
 
@@ -1403,7 +1404,7 @@ int main(int argc, char *argv[])
 				fanSpeed *= 0.9;
 			if ( adjust == 1 ) {
 				if ( fanSpeed == 0 )
-					fanSpeed = daemonCfg.speedMin;
+					fanSpeed = daemonCfg.speedMin * 1.2;
 				else
 					fanSpeed *= 1.1;
 			}
