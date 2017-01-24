@@ -495,15 +495,19 @@ static int readHddTemp(int disk) {
 	pid_t pid;
 	char buf[2048], *dev;
 	int tmp, temp;
+	FILE *input;
 
 	syslog(LOG_DEBUG, "query disk %d temperature\n", disk);
 	dev = getDisk(disk);
 	if ( dev == NULL )
 		return 0;
 
-	pipe(fd);
+	if ( pipe(fd) == -1 )
+		return -1;
 	pid = fork();
 	if (pid < 0) {
+		close(fd[0]);
+		close(fd[1]);
 		printf("fork() failed\n");
 		return -1;
 	}
@@ -513,11 +517,11 @@ static int readHddTemp(int disk) {
 		close(fd[0]);
 		execlp("smartctl", "smartctl", "-A", dev, NULL);
 	}
-	dup2(fd[0],0);
 	close(fd[1]);
+	input = fdopen(fd[0], "r");
 	tmp = 0;
 	temp = 0;
-	while ( fgets(buf, 1024, stdin ) ) {
+	while ( fgets(buf, 1024, input ) ) {
 		if ( strncmp("190", buf, 3) == 0 ) {
 			tmp = parseTemp(buf);
 		}
@@ -527,8 +531,8 @@ static int readHddTemp(int disk) {
 		if ( tmp > temp)
 			temp = tmp;
 	}
-	close(fd[0]);
 	wait(&status);
+	fclose(input);
 	free(dev);
 
 	return temp;
@@ -968,15 +972,17 @@ static int GetHddTemp(char *retMessage, int bufSize) {
 	int i, c, pos;
 
 	pos = 0;
-	for (i=1;i<=ataPorts;i++) {
-		tmp = getDisk(i);
+	for (i=0;i<ataPorts;i++) {
+		tmp = getDisk(i+1);
 		if ( tmp ) {
-			c = snprintf(buf, 256, "slot %d %s temp: %d\n",i,tmp,readHddTemp(i));
+			c = snprintf(buf, 256, "slot: %d  disk: %s  temp: %d °C\n", i+1, tmp, tdisk[i].temp);
 			free(tmp);
 			strncpy(&retMessage[pos], buf, bufSize - pos);
 			pos += c;
 		}
 	}
+	if ( pos == 0 )
+		snprintf(retMessage, bufSize, "No disks found in %d ports\n", ataPorts);
 
 	return 0;
 }
@@ -1152,7 +1158,6 @@ int main(int argc, char *argv[])
 	//int powerBtn;
 	//int pressed;
 	int opt;
-	//int sleepCount;
 	time_t sleepFan;
 	time_t sleepHdd;
 	time_t now;
@@ -1162,9 +1167,6 @@ int main(int argc, char *argv[])
 	//char buf[100];
 	char *configPath = "/etc/mcm-daemon.ini";
 	//char msgBuf[15];
-	//int sysTemp;
-	//int fanSpeed;
-	//int fanRpm;
 	struct sockaddr_in s_name;
 	struct pollfd *fds = NULL;
 	nfds_t nfds;
@@ -1174,14 +1176,11 @@ int main(int argc, char *argv[])
 	char message[500];
 	dictionary *iniFile;
 	socklen_t namelength;
-	//pressed = 0;
+
 	nfds = 1;
 	opt = 1;
-	//sleepCount = 0;
 	pollTimeMs = 10; // Sleep 10ms for every loop
 	fanSpeed = -1;
-	//fanRpm = -1;
-
 	daemonCfg.goDaemon = 1;
 	daemonCfg.debug = 0;
 
@@ -1195,7 +1194,7 @@ int main(int argc, char *argv[])
 				break;
 			case 'd':
 				daemonCfg.debug = 1;
-				daemonCfg.goDaemon = 0;
+				//daemonCfg.goDaemon = 0;
 				break;
 			case 'c':
 				configPath = optarg;
@@ -1288,7 +1287,6 @@ int main(int argc, char *argv[])
 		close(STDIN_FILENO);
 		close(STDOUT_FILENO);
 		close(STDERR_FILENO);
-
 	}
 
 	// Open our socket server
