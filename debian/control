@@ -10,6 +10,6 @@ Homepage: <insert the upstream URL, if relevant>
 
 Package: mcm-daemon
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, smartmontools
 Description: <insert up to 60 chars description>
  <insert long description, indented with spaces>

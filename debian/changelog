@@ -1,6 +1,7 @@
 mcm-daemon (1.02) UNRELEASED; urgency=medium
 
   * add harddisk temperatures and new fan control
+  * add dependency on smatmontools
 
  -- Martin Mueller <mm@c-base.org>  Mon, 23 Jan 2017 15:36:23 +0100
 
