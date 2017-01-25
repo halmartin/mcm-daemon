@@ -64,6 +64,7 @@ int fd;
 int ataPorts;
 int fanRpm;
 int fanSpeed;
+int fanMode;
 tempState tsys;
 tempState *tdisk;
 DaemonConfig daemonCfg;
@@ -583,7 +584,7 @@ static int setFanSpeed(int val)
 	return 1;
 }
 
-static int DeviceReady(char *retMessage, int bufSize)
+static int DeviceReady(char *retMessage, int bufSize, char *cmd)
 {
 	if(SendCommand(fd, DeviceReadyCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
@@ -595,7 +596,7 @@ static int DeviceReady(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int GetFanRpm(char *retMessage, int bufSize)
+static int GetFanRpm(char *retMessage, int bufSize, char *cmd)
 {
 	int tmp, len;
 
@@ -616,7 +617,7 @@ static int GetFanRpm(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int GetSysTemp(char *retMessage, int bufSize)
+static int GetSysTemp(char *retMessage, int bufSize, char *cmd)
 {
 	int tmp, len;
 
@@ -637,13 +638,13 @@ static int GetSysTemp(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int quit(char *retMessage, int bufSize)
+static int quit(char *retMessage, int bufSize, char *cmd)
 {
 	strncpy(retMessage, "Bye\n", bufSize);
 	return 2;
 }
 
-static int PwrLedOff(char *retMessage, int bufSize)
+static int PwrLedOff(char *retMessage, int bufSize, char *cmd)
 {
 	if(SendCommand(fd, PLedOffCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
@@ -655,7 +656,7 @@ static int PwrLedOff(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int PwrLedBlue(char *retMessage, int bufSize)
+static int PwrLedBlue(char *retMessage, int bufSize, char *cmd)
 {
 	if(SendCommand(fd, PLedBlueOnCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
@@ -667,7 +668,7 @@ static int PwrLedBlue(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int PwrLedBlueBlink(char *retMessage, int bufSize)
+static int PwrLedBlueBlink(char *retMessage, int bufSize, char *cmd)
 {
 	if(SendCommand(fd, PLedBlueBlinkCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
@@ -679,7 +680,7 @@ static int PwrLedBlueBlink(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int PwrLedBlueFade(char *retMessage, int bufSize)
+static int PwrLedBlueFade(char *retMessage, int bufSize, char *cmd)
 {
 	if(SendCommand(fd, PLedBlueFadeCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
@@ -691,7 +692,7 @@ static int PwrLedBlueFade(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int PwrLedRed(char *retMessage, int bufSize)
+static int PwrLedRed(char *retMessage, int bufSize, char *cmd)
 {
 	if(SendCommand(fd, PLedRedOnCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
@@ -703,7 +704,7 @@ static int PwrLedRed(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int PwrLedRedBlink(char *retMessage, int bufSize)
+static int PwrLedRedBlink(char *retMessage, int bufSize, char *cmd)
 {
 	if(SendCommand(fd, PLedRedBlinkCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
@@ -715,7 +716,7 @@ static int PwrLedRedBlink(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int PwrLedOrange(char *retMessage, int bufSize)
+static int PwrLedOrange(char *retMessage, int bufSize, char *cmd)
 {
 	if(SendCommand(fd, PLedOrangeOnCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
@@ -727,7 +728,7 @@ static int PwrLedOrange(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int PwrLedOrangeBlink(char *retMessage, int bufSize)
+static int PwrLedOrangeBlink(char *retMessage, int bufSize, char *cmd)
 {
 	if(SendCommand(fd, PLedOrangeBlinkCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
@@ -739,14 +740,67 @@ static int PwrLedOrangeBlink(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int Shutdown(char *retMessage, int bufSize)
+static int Shutdown(char *retMessage, int bufSize, char *cmd)
 {
 	strncpy(retMessage, "OK\n", bufSize);
 	return 3;
 }
 
+static int SetFanMode(char *retMessage, int bufSize, char *cmd)
+{
+	char *mode;
+
+	strncpy(retMessage, "ERR usage: SetFanMode auto|manual\n", bufSize);
+	mode = strtok(NULL, "\t\r\n: ");
+	if ( ! mode )
+		return 0;
+	syslog(LOG_DEBUG, "setting fan mode to: %s\n", mode);
+	strncpy(retMessage, "OK\n", bufSize);
+	if ( strncasecmp(mode, "auto", 4) == 0 )
+		fanMode = 1;
+	else if ( strncasecmp(mode, "manual", 6) == 0 )
+		fanMode = 0;
+	else
+		strncpy(retMessage, "ERR unkown mode\n", bufSize);
+	return 0;
+}
+
+static int SetFanSpeed(char *retMessage, int bufSize, char *cmd)
+{
+	char *speed, *msg, *endptr;
+	int val;
+
+	asprintf(&msg, "ERR usage: SetFanSpeed 0 | %d ... %d\n", daemonCfg.speedMin, daemonCfg.speedMax);
+	strncpy(retMessage, msg, bufSize);
+	free(msg);
+	speed = strtok(NULL, "\t\r\n: ");
+	if ( ! speed )
+		return 0;
+
+	errno = 0;
+	val = (int) strtol(speed, &endptr, 0);
+
+	strncpy(retMessage, "ERR arg is no number\n", bufSize);
+	if ( errno != 0 || speed == endptr )
+		return 0;
+
+	strncpy(retMessage, "OK\n", bufSize);
+
+	if ( val == 0 )
+		fanSpeed = 0;
+	else if ( val < daemonCfg.speedMin )
+		fanSpeed = daemonCfg.speedMin;
+	else if ( val > daemonCfg.speedMax )
+		fanSpeed = daemonCfg.speedMax;
+	else
+		fanSpeed = val;
+
+	setFanSpeed(fanSpeed);
+	return 0;
+}
+
 #if 0 /* disabled commands that don't work on the WDMC Gen2 */
-static int EnPwrRec(char *retMessage, int bufSize)
+static int EnPwrRec(char *retMessage, int bufSize, char *cmd)
 {
 	if(SendCommand(fd, APREnableCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
@@ -758,7 +812,7 @@ static int EnPwrRec(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int DisPwrRec(char *retMessage, int bufSize)
+static int DisPwrRec(char *retMessage, int bufSize, char *cmd)
 {
 	if(SendCommand(fd, APRDisableCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
@@ -770,7 +824,7 @@ static int DisPwrRec(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int GetPwrRec(char *retMessage, int bufSize)
+static int GetPwrRec(char *retMessage, int bufSize, char *cmd)
 {
 	int len;
 	char buf[15];
@@ -794,7 +848,7 @@ static int GetPwrRec(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int EnWOL(char *retMessage, int bufSize)
+static int EnWOL(char *retMessage, int bufSize, char *cmd)
 {
 	if(SendCommand(fd, WOLStatusEnableCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
@@ -806,7 +860,7 @@ static int EnWOL(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int DisWOL(char *retMessage, int bufSize)
+static int DisWOL(char *retMessage, int bufSize, char *cmd)
 {
 	if(SendCommand(fd, WOLStatusDisableCmd, NULL) == SUCCESS)
 		strncpy(retMessage, "OK\n", bufSize);
@@ -818,7 +872,7 @@ static int DisWOL(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int GetWOL(char *retMessage, int bufSize)
+static int GetWOL(char *retMessage, int bufSize, char *cmd)
 {
 	int len;
 	char buf[15];
@@ -841,7 +895,7 @@ static int GetWOL(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int ReadRtc(char *retMessage, int bufSize)
+static int ReadRtc(char *retMessage, int bufSize, char *cmd)
 {
 	int i;
 	char buf[15];
@@ -874,7 +928,7 @@ static int ReadRtc(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int systohc(char *retMessage, int bufSize)
+static int systohc(char *retMessage, int bufSize, char *cmd)
 {
 	int i;
 	char cmdBuf[15];
@@ -914,7 +968,7 @@ static int systohc(char *retMessage, int bufSize)
 	return 0;
 }
 
-static int hctosys(char *retMessage, int bufSize)
+static int hctosys(char *retMessage, int bufSize, char *cmd)
 {
 	int i;
 	struct tm strTime;
@@ -959,7 +1013,7 @@ static int hctosys(char *retMessage, int bufSize)
 }
 #endif
 
-static int GetHddTemp(char *retMessage, int bufSize) {
+static int GetHddTemp(char *retMessage, int bufSize, char *cmd) {
 
 	char *tmp;
 	char buf[256];
@@ -1081,12 +1135,14 @@ static int checkTemps(void) {
 	return temp;
 }
 
-static int help(char *retMessage, int bufSize);
+static int help(char *retMessage, int bufSize, char *cmd);
 
 DaemonCommand cmdTable[] = {
 		{ &DeviceReady, 	"DeviceReady",			"Tells the MCU, tht the device booted fully" },
+		{ &SetFanMode,		"SetFanMode",			"set fan control to mode \"auto\" or \"manual\"" },
 		{ &GetFanRpm,		"GetFanRpm",			"Reads the fan speed from the MCU" },
-		{ &GetSysTemp,		"GetSysTemp",		"Reads the system temperatur from the MCU" },
+		{ &SetFanSpeed,		"SetFanSpeed",			"set the fan pwm value to 0 | min ... max" },
+		{ &GetSysTemp,		"GetSysTemp",			"Reads the system temperatur from the MCU" },
 		{ &GetHddTemp,		"GetHddTemp",			"print harddisk temperatures" },
 		//{ &EnPwrRec,		"EnablePowerRecovery",	"Device boots after power failure" },
 		//{ &DisPwrRec,		"DisablePowerRecovery",	"Device stays off after power failure" },
@@ -1110,7 +1166,7 @@ DaemonCommand cmdTable[] = {
 		{ &quit,			"quit",					"closes connection to daemon" },
 	};
 
-static int help(char *retMessage, int bufSize)
+static int help(char *retMessage, int bufSize, char *cmd)
 {
 	int x,y,len,cmds;
 	char fmt[20];
@@ -1134,14 +1190,20 @@ int HandleCommand(char *message, int messageLen, char *retMessage, int bufSize) 
 	uint8_t x;
 	long num;
 	char *endptr = NULL;
-	int (*func)(char *retMessage, int bufSize);
+	char *cmd;
+	int (*func)(char *retMessage, int bufSize, char *cmd);
 
+	cmd = strtok(message, " \t\r\n:");
+	if ( ! cmd ) {
+		retMessage[0] = '\0';
+		return 0;
+	}
 	syslog(LOG_DEBUG, "Handling Command: %s\n", message);
 	for (x=0;x<sizeof(cmdTable)/sizeof(DaemonCommand); x++) {
-		if (strncmp(message,cmdTable[x].name, messageLen) == 0) {
+		if (strncasecmp(cmd,cmdTable[x].name, strlen(cmd)) == 0) {
 			syslog(LOG_DEBUG, "%s\n", cmdTable[x].name);
 			func = cmdTable[x].func;
-			return func(retMessage, bufSize);
+			return func(retMessage, bufSize, message);
 		}
 	}
 	errno = 0;
@@ -1197,6 +1259,7 @@ int main(int argc, char *argv[])
 	opt = 1;
 	pollTimeMs = 100; // Sleep 10ms for every loop
 	fanSpeed = -1;
+	fanMode = 1;
 	daemonCfg.goDaemon = 1;
 	daemonCfg.debug = 0;
 
@@ -1414,31 +1477,33 @@ int main(int argc, char *argv[])
 			syslog(LOG_DEBUG, "system tempOld: %d, temp: %d, fanSpeed: %d, fanRpm: %d\n",
 				tsys.tempOld, tsys.temp, fanSpeed, fanRpm);
 			adjust = checkTemps();
-			if ( adjust == -3 )
-				fanSpeed = 0;
-			if ( adjust == -2 )
-				fanSpeed *= 0.9;
-			if ( adjust == -1 )
-				fanSpeed *= 0.95;
-			if ( adjust == 1 ) {
-				if ( fanSpeed == 0 )
-					fanSpeed = daemonCfg.speedMin * 1.2;
-				else
-					fanSpeed *= 1.1;
+			if (fanMode == 1) {
+				if ( adjust == -3 )
+					fanSpeed = 0;
+				if ( adjust == -2 )
+					fanSpeed *= 0.9;
+				if ( adjust == -1 )
+					fanSpeed *= 0.95;
+				if ( adjust == 1 ) {
+					if ( fanSpeed == 0 )
+						fanSpeed = daemonCfg.speedMin * 1.2;
+					else
+						fanSpeed *= 1.1;
+				}
+				if ( adjust == 2 )
+					fanSpeed = daemonCfg.speedMax;
+
+				if ( fanSpeed > daemonCfg.speedMax )
+					fanSpeed = daemonCfg.speedMax;
+
+				if ( fanSpeed > 0 && fanSpeed < daemonCfg.speedMin )
+					fanSpeed = daemonCfg.speedMin;
+
+				setFanSpeed(fanSpeed);
+
+				if ( adjust != 0 )
+					syslog(LOG_DEBUG, "adjusting fan speed: %d, adjust: %d\n", fanSpeed, adjust);
 			}
-			if ( adjust == 2 )
-				fanSpeed = daemonCfg.speedMax;
-
-			if ( fanSpeed > daemonCfg.speedMax )
-				fanSpeed = daemonCfg.speedMax;
-
-			if ( fanSpeed > 0 && fanSpeed < daemonCfg.speedMin )
-				fanSpeed = daemonCfg.speedMin;
-
-			setFanSpeed(fanSpeed);
-
-			if ( adjust != 0 )
-				syslog(LOG_DEBUG, "adjusting fan speed: %d, adjust: %d\n", fanSpeed, adjust);
 		}
 
 		ret = poll(fds,nfds,pollTimeMs); // Time out after pollTimeMs
