@@ -467,17 +467,17 @@ static char *getDisk(int disk) {
 	return tmp;
 }
 
-static int parseTemp(char *buf) {
+static int parseTemp(char *buf, int field) {
 	char *endptr = NULL;
-	int temp = 0;
-	int x;
+	int i=0, temp = 0;
 	char *tok;
 
-	x = 1;
+
 	tok = strtok(buf, "\t\r\n ");
-	while ( x < 10 && tok != NULL  ) {
+	i++;
+	while (i < field) {
 		tok = strtok(NULL, "\t\r\n ");
-		x++;
+		i++;
 	}
 	errno = 0;
 	if (tok != NULL)
@@ -494,7 +494,7 @@ static int readHddTemp(int disk) {
 	int status;
 	pid_t pid;
 	char buf[2048], *dev;
-	int tmp, temp;
+	int temp;
 	FILE *input;
 
 	syslog(LOG_DEBUG, "query disk %d temperature\n", disk);
@@ -515,21 +515,15 @@ static int readHddTemp(int disk) {
 		/* child to start smartctl */
 		dup2(fd[1], 1);
 		close(fd[0]);
-		execlp("smartctl", "smartctl", "-A", dev, NULL);
+		execlp("smartctl", "smartctl", "-n", "standby", "-l", "scttempsts", dev, NULL);
 	}
 	close(fd[1]);
 	input = fdopen(fd[0], "r");
-	tmp = 0;
 	temp = 0;
 	while ( fgets(buf, 1024, input ) ) {
-		if ( strncmp("190", buf, 3) == 0 ) {
-			tmp = parseTemp(buf);
+		if ( strncmp("Current Temperature:", buf, 20) == 0 ) {
+			temp = parseTemp(buf, 3);
 		}
-		if ( strncmp("194", buf, 3) == 0 ) {
-			tmp = parseTemp(buf);
-		}
-		if ( tmp > temp)
-			temp = tmp;
 	}
 	wait(&status);
 	fclose(input);
