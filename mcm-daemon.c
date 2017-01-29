@@ -548,7 +548,7 @@ static int readFan()
 		return rpm;
 	}
 
-	syslog(LOG_DEBUG, "Error getting fan speed\n");
+	syslog(LOG_ERR, "Error reading fan speed\n");
 	return ERR_WRONG_ANSWER;
 }
 
@@ -564,7 +564,7 @@ static int readSysTemp()
 		return temp;
 	}
 
-	syslog(LOG_DEBUG, "Error reading system temperature\n");
+	syslog(LOG_ERR, "Error reading system temperature\n");
 	return ERR_WRONG_ANSWER;
 }
 
@@ -573,6 +573,7 @@ static int setFanSpeed(int val)
 	char buf[10];
 	int i;
 
+	syslog(LOG_DEBUG, "setFanSpeed %d\n", val);
 	for (i=0;i<=6;i++) {
 		buf[i] = FanSpeedSetCmd[i];
 	}
@@ -581,6 +582,7 @@ static int setFanSpeed(int val)
 	if(SendCommand(fd, buf, NULL) == SUCCESS)
 		return 0;
 
+	syslog(LOG_ERR, "Error setting fan speed\n");
 	return 1;
 }
 
@@ -1443,8 +1445,26 @@ int main(int argc, char *argv[])
 	tsys.temp    = 0;
 	tsys.tempOld = 0;
 
-	fanSpeed = (daemonCfg.speedMax + daemonCfg.speedMin) / 2;
+	fanSpeed = daemonCfg.speedMin;
 	setFanSpeed(fanSpeed);
+
+	// Calibrate minimum fanSpeed
+	if ( daemonCfg.speedMin == 0 ) {
+		usleep(2000000);
+		fanRpm = 0;
+		fanSpeed = 0;
+		while (fanRpm == 0 && fanSpeed < daemonCfg.speedMax) {
+			fanSpeed++;
+			setFanSpeed(fanSpeed);
+			fanRpm = readFan();
+			usleep(100000);
+		}
+		daemonCfg.speedMin = fanSpeed * 1.05;
+		syslog(LOG_INFO, "minimum fanSpeed setting detected as %d using %d\n", fanSpeed, daemonCfg.speedMin);
+		fanSpeed = daemonCfg.speedMin;
+		setFanSpeed(fanSpeed);
+		usleep(1000000);
+	}
 	sleepFan = 0;
 	sleepHdd = 0;
 
@@ -1463,6 +1483,12 @@ int main(int argc, char *argv[])
 			sleepFan = now;
 			updateSysTemp();
 			fanRpm = readFan();
+			if ( fanSpeed > 0 && fanRpm == 0 ) {
+				syslog(LOG_ERR, "fan not running with speed %d\n", fanSpeed);
+				fanSpeed += 2;
+				daemonCfg.speedMin = fanSpeed;
+				setFanSpeed(fanSpeed);
+			}
 			syslog(LOG_DEBUG, "system temp: %d fan rpm: %d\n",tsys.temp, fanRpm);
 		}
 
