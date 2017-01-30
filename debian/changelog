@@ -1,9 +1,15 @@
-mcm-daemon (1.02) UNRELEASED; urgency=medium
+mcm-daemon (1.03) UNRELEASED; urgency=medium
+
+  * add step based fan control
+
+ -- Martin Mueller <mm@ovid.sig21.net>  Sun, 29 Jan 2017 18:36:16 +0100
+
+mcm-daemon (1.02) unstable; urgency=medium
 
   * add harddisk temperatures and new fan control
   * add dependency on smatmontools
 
- -- Martin Mueller <mm@c-base.org>  Mon, 23 Jan 2017 15:36:23 +0100
+ -- Martin Mueller <mm@ovid.sig21.net>  Sun, 29 Jan 2017 18:35:52 +0100
 
 mcm-daemon (1.01) unstable; urgency=medium
 

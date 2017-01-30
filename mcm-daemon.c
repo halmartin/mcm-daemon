@@ -1061,6 +1061,46 @@ static void updateSysTemp(void) {
 }
 
 static int checkTemps(void) {
+	int step, i, tmp, fan;
+
+	fan = 0;
+	for (i=0;i<ataPorts;i++) {
+		tmp = 0;
+		step = 0;
+		if ( tdisk[i].temp > 0 ) {
+			step = (daemonCfg.tempDiskHigh - daemonCfg.tempDiskLow) - (daemonCfg.tempDiskHigh - tdisk[i].temp);
+			if (step < 0)
+				step = 0;
+			if (step > daemonCfg.tempDiskHigh - daemonCfg.tempDiskLow)
+				step = daemonCfg.tempDiskHigh - daemonCfg.tempDiskLow;
+		}
+		if ( tdisk[i].temp > daemonCfg.tempDiskLow )
+			tmp = daemonCfg.speedMin + step * ((daemonCfg.speedMax - daemonCfg.speedMin) / (daemonCfg.tempDiskHigh - daemonCfg.tempDiskLow));
+		else if ( tdisk[i].temp == daemonCfg.tempDiskLow && fanSpeed > 0 )
+			tmp = daemonCfg.speedMin;
+
+		if ( tmp > fan )
+			fan = tmp;
+	}
+
+	if ( tsys.temp > 0 ) {
+		tmp = 0;
+		step = (daemonCfg.tempSysHigh - daemonCfg.tempSysLow) - (daemonCfg.tempSysHigh - tsys.temp);
+		if (step < 0)
+			step = 0;
+		if (step > daemonCfg.tempSysHigh - daemonCfg.tempSysLow)
+			step = daemonCfg.tempSysHigh - daemonCfg.tempSysLow;
+		if ( tsys.temp > daemonCfg.tempSysLow )
+			tmp = daemonCfg.speedMin + step * ((daemonCfg.speedMax - daemonCfg.speedMin) / (daemonCfg.tempSysHigh - daemonCfg.tempSysLow));
+		else if ( tsys.temp == daemonCfg.tempSysLow )
+			tmp = daemonCfg.speedMin;
+
+		if ( tmp > fan )
+			fan = tmp;
+	}
+	return fan;
+}
+static int _checkTemps(void) {
 	int temp = 0;
 	int disks = 0;
 	int i;
@@ -1502,34 +1542,8 @@ int main(int argc, char *argv[])
 			}
 			syslog(LOG_DEBUG, "system tempOld: %d, temp: %d, fanSpeed: %d, fanRpm: %d\n",
 				tsys.tempOld, tsys.temp, fanSpeed, fanRpm);
-			adjust = checkTemps();
-			if (fanMode == 1) {
-				if ( adjust == -3 )
-					fanSpeed = 0;
-				if ( adjust == -2 )
-					fanSpeed *= 0.9;
-				if ( adjust == -1 )
-					fanSpeed *= 0.95;
-				if ( adjust == 1 ) {
-					if ( fanSpeed == 0 )
-						fanSpeed = daemonCfg.speedMin * 1.2;
-					else
-						fanSpeed *= 1.1;
-				}
-				if ( adjust == 2 )
-					fanSpeed = daemonCfg.speedMax;
-
-				if ( fanSpeed > daemonCfg.speedMax )
-					fanSpeed = daemonCfg.speedMax;
-
-				if ( fanSpeed > 0 && fanSpeed < daemonCfg.speedMin )
-					fanSpeed = daemonCfg.speedMin;
-
-				setFanSpeed(fanSpeed);
-
-				if ( adjust != 0 )
-					syslog(LOG_DEBUG, "adjusting fan speed: %d, adjust: %d\n", fanSpeed, adjust);
-			}
+			fanSpeed = checkTemps();
+			setFanSpeed(fanSpeed);
 		}
 
 		ret = poll(fds,nfds,pollTimeMs); // Time out after pollTimeMs
