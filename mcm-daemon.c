@@ -1092,7 +1092,7 @@ static int checkTemps(void) {
 			step = daemonCfg.tempSysHigh - daemonCfg.tempSysLow;
 		if ( tsys.temp > daemonCfg.tempSysLow )
 			tmp = daemonCfg.speedMin + step * ((daemonCfg.speedMax - daemonCfg.speedMin) / (daemonCfg.tempSysHigh - daemonCfg.tempSysLow));
-		else if ( tsys.temp == daemonCfg.tempSysLow )
+		else if ( tsys.temp == daemonCfg.tempSysLow && fanSpeed > 0 )
 			tmp = daemonCfg.speedMin;
 
 		if ( tmp > fan )
