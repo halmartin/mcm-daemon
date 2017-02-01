@@ -1076,7 +1076,7 @@ static int checkTemps(void) {
 		}
 		if ( tdisk[i].temp > daemonCfg.tempDiskLow )
 			tmp = daemonCfg.speedMin + step * ((daemonCfg.speedMax - daemonCfg.speedMin) / (daemonCfg.tempDiskHigh - daemonCfg.tempDiskLow));
-		else if ( tdisk[i].temp == daemonCfg.tempDiskLow && fanSpeed > 0 )
+		else if ( tdisk[i].temp >= (daemonCfg.tempDiskLow - daemonCfg.hysteresis) && fanSpeed > 0 )
 			tmp = daemonCfg.speedMin;
 
 		if ( tmp > fan )
@@ -1092,7 +1092,7 @@ static int checkTemps(void) {
 			step = daemonCfg.tempSysHigh - daemonCfg.tempSysLow;
 		if ( tsys.temp > daemonCfg.tempSysLow )
 			tmp = daemonCfg.speedMin + step * ((daemonCfg.speedMax - daemonCfg.speedMin) / (daemonCfg.tempSysHigh - daemonCfg.tempSysLow));
-		else if ( tsys.temp == daemonCfg.tempSysLow && fanSpeed > 0 )
+		else if ( tsys.temp >= (daemonCfg.tempSysLow - daemonCfg.hysteresis) && fanSpeed > 0 )
 			tmp = daemonCfg.speedMin;
 
 		if ( tmp > fan )
