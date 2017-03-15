@@ -33,7 +33,7 @@ iniparser/src/iniparser.h:
 	git clone http://github.com/ndevilla/iniparser
 
 clean:
-	make -C iniparser veryclean
+	@sh -c "[ -d iniparser ] && make -C iniparser veryclean || true"
 	rm -f *.o mcm-daemon
 	
 
