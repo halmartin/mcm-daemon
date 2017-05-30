@@ -21,7 +21,7 @@
 	compatible = "marvell,a385-db", "marvell,armada385", "marvell,armada38x";
 
 	chosen {
-		bootargs = "console=ttyS0,115200 libata.force=3.0G root=LABEL=rootfs earlyprintk";
+		bootargs = "console=ttyS0,115200 root=LABEL=rootfs earlyprintk";
 	};
 
 	memory {
@@ -79,8 +79,8 @@
 				pinctrl-names = "default";
 				pinctrl-0 = <&mdio_pins>;
 				phy0: ethernet-phy@0 {
-                                        reg = <2>;
-                                };
+					reg = <2>;
+				};
 
 				phy1: ethernet-phy@1 {
 					reg = <1>;
