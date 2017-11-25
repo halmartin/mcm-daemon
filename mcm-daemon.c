@@ -204,12 +204,18 @@ int CheckResponse(char *buf, char *cmd, int len)
 	//int tmp;
 	int failure = 0;
 
+	/* EX2100 MCU sometimes ACKs with 0xfa 0x40 instead of
+	 * 0xfa 0x30. Verify response from 3rd byte instead
+	 * of 1st byte to avoid bailing out if first 2
+	 * response bytes are different. Expected response
+	 * data from commands is in higher bytes.
+	*/
 	// Attention, 5 is hardcoded here and never checked!
-	for(i=0;i<5;i++)
+	for(i=2;i<5;i++)
 	{
 		if(buf[i] != cmd[i])
 		{
-			syslog(LOG_ERR, "Char %i is %i but should be %i\n", i, buf[i], cmd[i]);
+			syslog(LOG_ERR, "Char %i is %hhX but should be %hhX\n", i, buf[i], cmd[i]);
 			failure = 1;
 			break;
 		}
@@ -218,7 +224,7 @@ int CheckResponse(char *buf, char *cmd, int len)
 	{
 		for(i=0;i<len;i++)
 		{
-			syslog(LOG_DEBUG, "Buf/Cmd %i: %i %i\n", i, buf[i], cmd[i]);
+			syslog(LOG_DEBUG, "Buf/Cmd %i: %hhX %hhX\n", i, buf[i], cmd[i]);
 		}
 		return ERR_WRONG_ANSWER;
 	}
@@ -540,7 +546,11 @@ static int readFan()
 	if(SendCommand(fd, FanSpeedGetCmd, buf) > ERR_WRONG_ANSWER)
 	{
 		if ( buf[5] > 0 )
-			rpm = (int) (300000 / buf[5]);
+			/* EX2100 uses the Sunon MagLev PF70251VX-Q000-S99
+			 * maximum RPM is ~4300 RPM
+			 * 64500 = 4300 * 15
+			 */
+			rpm = (int) (64500 / buf[5]);
 		else
 			rpm = 0;
 
@@ -560,7 +570,7 @@ static int readSysTemp()
 	if(SendCommand(fd, ThermalStatusGetCmd, buf) > ERR_WRONG_ANSWER)
 	{
 		temp = ThermalTable[(int)buf[5]];
-		syslog(LOG_DEBUG, "Read system tempterature: %i °C\n", temp);
+		syslog(LOG_DEBUG, "Read system temperature: %i °C\n", temp);
 		return temp;
 	}
 
@@ -1456,7 +1466,7 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
-	set_interface_attribs (fd, B19200, 0);	// set speed to 19,200 bps, 8n1 (no parity) for WD MCM gen2; EX2u
+	set_interface_attribs (fd, B115200, 0);	// set speed to 115200 bps, 8n1 (no parity) for WD EX2100
 	set_blocking (fd, 0);					// set no blocking
 
 
