@@ -546,11 +546,11 @@ static int readFan()
 	if(SendCommand(fd, FanSpeedGetCmd, buf) > ERR_WRONG_ANSWER)
 	{
 		if ( buf[5] > 0 )
-			/* EX2100 uses the Sunon MagLev PF70251VX-Q000-S99
-			 * maximum RPM is ~4300 RPM
-			 * 64500 = 4300 * 15
+			/* EX2100 uses the Sunon MagLev PF70251VX-Q02U-S99
+			 * measured RPM at 100% duty cycle is ~4800 RPM
+			 * 4800 * 15 = 72000
 			 */
-			rpm = (int) (64500 / buf[5]);
+			rpm = (int) (72000 / buf[5]);
 		else
 			rpm = 0;
 
